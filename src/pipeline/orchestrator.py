@@ -1,0 +1,187 @@
+import uuid
+import logging
+from typing import Dict, List, Any, Optional
+
+from src.db.database import VectorDBContext
+from src.agent.core import ResearchAgent
+
+logger = logging.getLogger(__name__)
+
+
+class ResearchPipeline:
+    """Orchestrates the full research query lifecycle.
+
+    Pipeline flow:
+        1. Check vector DB cache for a semantically similar past query.
+        2. If cache miss, create a tracked background task.
+        3. Execute the research agent to generate a report.
+        4. Persist the result back into the vector DB.
+
+    This class is the single entry point for all business logic;
+    the API layer delegates exclusively to it.
+    """
+
+    def __init__(
+        self,
+        db: Optional[VectorDBContext] = None,
+        agent: Optional[ResearchAgent] = None,
+    ):
+        self.db = db or VectorDBContext()
+        self.agent = agent or ResearchAgent()
+        self._tasks: Dict[str, Dict[str, Any]] = {}
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def initialize(self) -> None:
+        """Prepare all subsystems — called once at service startup.
+
+        Initialises the vector DB collection and builds the research agent.
+        """
+        self.db.init_db()
+        self.agent.build()
+
+    # ------------------------------------------------------------------
+    # Query pipeline
+    # ------------------------------------------------------------------
+
+    def process_query(self, query: str) -> Dict[str, Any]:
+        """Check cache and return a cached report or a new task_id.
+
+        Returns:
+            dict with keys ``status``, and optionally ``report`` or ``task_id``.
+        """
+        # Step 1 — cache lookup
+        cached_report = self.db.search_query(query)
+        if cached_report:
+            return {"status": "found", "report": cached_report}
+
+        # Step 2 — cache miss → create a pending task
+        task_id = str(uuid.uuid4())
+        self._tasks[task_id] = {"status": "pending", "report": None, "error": None}
+        return {"status": "processing", "task_id": task_id}
+
+    def _init_task(
+        self, task_id: str, status: str = "pending"
+    ) -> Dict[str, Any]:
+        """Create a fresh task record and register it."""
+        record: Dict[str, Any] = {
+            "status": status,
+            "report": None,
+            "error": None,
+            "steps": [],
+        }
+        self._tasks[task_id] = record
+        return record
+
+    def run_task(self, task_id: str, query: str) -> None:
+        """Execute the research agent, persist the report, and update task state.
+
+        Designed to be called as a background task by the API layer.
+        """
+        try:
+            self._tasks[task_id]["status"] = "processing"
+
+            report = self.agent.invoke(query)
+            
+            if report and report != " No Report Generated":
+                self.db.save_report(query, report)
+                logger.info(f"Task {task_id}: Report successfully saved to Qdrant DB")
+                self._tasks[task_id]["status"] = "completed"
+                self._tasks[task_id]["report"] = report
+            else:
+                self._tasks[task_id]["status"] = "failed"
+                self._tasks[task_id]["error"] = "No valid report generated"
+                logger.error(f"Task {task_id}: Failed to generate valid report")
+                
+        except Exception as exc:
+            self._tasks[task_id]["status"] = "failed"
+            self._tasks[task_id]["error"] = str(exc)
+            logger.exception("Task %s failed", task_id)
+
+    async def run_task_streaming(self, task_id: str, query: str) -> None:
+        """Execute the agent asynchronously, streaming per-step progress updates.
+
+        After each agent step (LLM call, tool invocation, …) the task record's
+        ``steps`` list is updated **in place** so callers polling ``/status``
+        will see incremental progress without waiting for the full run.
+
+        Designed to be scheduled with ``asyncio.create_task()`` or as a
+        FastAPI background task on an ``async def`` route.
+        """
+        task = self._tasks.get(task_id)
+        if task is None:
+            logger.error("run_task_streaming called for unknown task_id %s", task_id)
+            return
+
+        task["status"] = "processing"
+        task["steps"] = []
+        last_content = ""
+
+        try:
+            async for update in self.agent.astream(query):
+                step_record = {
+                    "step": update["step"],
+                    "content": update["content"],
+                    "metadata": update.get("data", {}),
+                }
+                task["steps"].append(step_record)
+                logger.debug(
+                    "Task %s — step %s: %s",
+                    task_id,
+                    update["step"],
+                    update["content"][:120],
+                )
+                # Track last non-empty content so we can surface the final report
+                if update["content"]:
+                    last_content = update["content"]
+                    
+
+            # Ensure we have captured the final report content
+            if last_content:
+                self.db.save_report(query, last_content)
+                logger.info(f"Task {task_id}: Report saved to Qdrant DB. Query: '{query[:50]}...'")
+                task["status"] = "completed"
+                task["report"] = last_content
+            else:
+                # If no content from streaming, try to get the final report via invoke
+                final_report = self.agent.invoke(query)
+                if final_report and final_report != " No Report Generated":
+                    self.db.save_report(query, final_report)
+                    logger.info(f"Task {task_id}: Final report saved to Qdrant DB. Query: '{query[:50]}...'")
+                    task["status"] = "completed"
+                    task["report"] = final_report
+                else:
+                    task["status"] = "failed"
+                    task["error"] = "No report content generated"
+                    
+        except Exception as exc:
+            task["status"] = "failed"
+            task["error"] = str(exc)
+            logger.exception("Task %s failed during streaming", task_id)
+
+    # ------------------------------------------------------------------
+    # Task status
+    # ------------------------------------------------------------------
+
+    def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Return the current status dict for a task, or ``None`` if unknown."""
+        return self._tasks.get(task_id)
+
+    # ------------------------------------------------------------------
+    # Reports
+    # ------------------------------------------------------------------
+
+    def get_all_reports(self) -> List[Dict[str, Any]]:
+        """Retrieve every stored report from the vector DB."""
+        return self.db.get_reports()
+
+    # ------------------------------------------------------------------
+    # Maintenance
+    # ------------------------------------------------------------------
+
+    def cleanup(self) -> None:
+        """Wipe the vector DB collection and clear all in-memory tasks."""
+        self.db.cleanup()
+        self._tasks.clear()
