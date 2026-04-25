@@ -24,3 +24,10 @@ class HealthResponse(BaseModel):
 
 class ReportListResponse(BaseModel):
     reports: list  # List of {"id": str, "query": str, "report": str}
+
+
+class AuthUserResponse(BaseModel):
+    sub: str
+    email: Optional[str] = None
+    name: Optional[str] = None
+    picture: Optional[str] = None

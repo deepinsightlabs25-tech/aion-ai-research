@@ -26,7 +26,7 @@ def in_memory_db() -> VectorDBContext:
     """VectorDBContext backed by an in-memory Qdrant instance."""
     with patch.dict(
         "os.environ",
-        {"QDRANT_URL": "", "GOOGLE_API_KEY": "test-key"},
+        {"QDRANT_URL": "", "GOOGLE_API_KEY": "test-key", "AUTH_DISABLED": "true"},
         clear=False,
     ):
         # Patch embeddings so we never hit the Google API

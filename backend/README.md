@@ -71,12 +71,17 @@ uv sync
 Copy `.env.example` to `.env` and fill in your keys:
 ```env
 GOOGLE_API_KEY="your-google-genai-key"
+GOOGLE_CLIENT_ID="your-google-oauth-client-id"
 QDRANT_API_KEY="your-qdrant-key"
 QDRANT_URL="https://your-qdrant-cluster-url.com"
 DEEP_AGENT_MODEL="google_genai:gemini-2.5-flash"
+# Local testing only. Keep false in deployed environments.
+AUTH_DISABLED="false"
+CORS_ORIGINS="https://ai-report-gen.onrender.com,http://localhost:5175,https://deepinsightlabs25-tech.github.io"
 ```
 
 > **Note:** Omitting `QDRANT_URL` / `QDRANT_API_KEY` falls back to an in-memory Qdrant instance — useful for local development.
+> For Google Sign-In, use the OAuth **Web Client ID**. Do not expose or use `client_secret` in frontend code.
 
 ---
 
@@ -96,6 +101,7 @@ Binds to `http://localhost:8000`. Interactive documentation at `http://localhost
 
 ### `POST /query`
 Submit a research query. Returns a cached report immediately, or a `task_id` for a new async job.
+Requires `Authorization: Bearer <google_id_token>`.
 
 ```json
 // Request
@@ -110,6 +116,7 @@ Submit a research query. Returns a cached report immediately, or a `task_id` for
 
 ### `GET /status?task_id=<id>`
 Poll progress of an async research task. The `steps` array grows in real time as each agent node completes.
+Requires `Authorization: Bearer <google_id_token>`.
 
 ```json
 {
@@ -126,9 +133,14 @@ Poll progress of an async research task. The `steps` array grows in real time as
 
 ### `GET /report`
 Fetch all cached reports from Qdrant.
+Requires `Authorization: Bearer <google_id_token>`.
 
 ### `POST /cleanup`
 Wipe the Qdrant collection and all in-memory task state.
+Requires `Authorization: Bearer <google_id_token>`.
+
+### `GET /auth/me`
+Validates the bearer token and returns the signed-in user profile.
 
 ### `GET /health`
 Liveness check — returns `{"status": "ok"}`.

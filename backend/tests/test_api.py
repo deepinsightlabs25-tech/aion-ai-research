@@ -31,6 +31,13 @@ def test_health(api_client):
     assert resp.json() == {"status": "ok"}
 
 
+def test_auth_me(api_client):
+    resp = api_client.get("/auth/me")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["sub"] == "dev-user"
+
+
 # ---------------------------------------------------------------------------
 # 2. POST /query — cache miss
 # ---------------------------------------------------------------------------
