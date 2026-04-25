@@ -1,0 +1,39 @@
+[project]
+name = "ai-report-gen-v2"
+version = "0.2.0"
+description = "AI Research agent using FastAPI, LangChain, and Qdrant"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.1",
+    "qdrant-client>=1.13.0",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-google-genai>=2.0.0",
+    "langgraph>=1.0.0",
+    "requests==2.32.3",
+    "python-dotenv==1.0.1",
+    "pydantic>=2.9.0",
+    "grpcio-tools>=1.66.2",
+    "streamlit>=1.50.0",
+    "deepagents>=0.5.3",
+]
+
+[project.scripts]
+serve = "src.api.server:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "ipykernel>=6.31.0",
+    "ipywidgets>=8.1.8",
+    "jupyter>=1.1.1",
+    "pytest>=8.4.2",
+]

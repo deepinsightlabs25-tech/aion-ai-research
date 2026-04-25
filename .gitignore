@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+
+# Local vector store and PDF extraction artifacts
+.chroma/
+*_extracted_images/
+extracted_data/
+
+
+
+.DS_Store
+#logs
+logs/*
+*.log
+#notebooks
