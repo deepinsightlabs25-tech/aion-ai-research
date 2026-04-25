@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "homepage": "https://mahendra705.github.io/research-ai-fe",
+  "homepage": "https://deepinsightlabs25-tech.github.io/aion-ai-research/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

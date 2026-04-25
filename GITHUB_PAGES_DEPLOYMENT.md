@@ -24,10 +24,10 @@ You should see origin pointing to your GitHub repository.
 ### 1.2 Verify the Repository Name
 The `homepage` in `package.json` is set to:
 ```
-"homepage": "https://mahendra705.github.io/research-ai-fe"
+"homepage": "https://deepinsightlabs25-tech.github.io/aion-ai-research/"
 ```
 
-**Important:** If your repository name is different from `research-ai-fe`, update the `homepage` URL accordingly.
+This matches the repository `aion-ai-research` under the organization `deepinsightlabs25-tech`.
 
 ---
 
@@ -85,7 +85,7 @@ git push origin main
 1. Go to your GitHub repository
 2. Click on **Actions** tab
 3. Watch the "Deploy Frontend to GitHub Pages" workflow
-4. Once complete, your site will be live at: `https://mahendra705.github.io/research-ai-fe/`
+4. Once complete, your site will be live at: `https://deepinsightlabs25-tech.github.io/aion-ai-research/`
 
 ### Option B: Manual Deployment (One-time)
 If you prefer manual deployment:
@@ -105,7 +105,7 @@ This command:
 ## Step 5: Verify Deployment
 
 1. Wait 1-2 minutes for GitHub Pages to process
-2. Visit your deployment URL: `https://mahendra705.github.io/research-ai-fe/`
+2. Visit your deployment URL: `https://deepinsightlabs25-tech.github.io/aion-ai-research/`
 3. Check for any 404 errors or styling issues
 
 ---
@@ -115,7 +115,7 @@ This command:
 ### Issue: 404 Errors on Deployed Site
 **Solution:** Verify the `base` path in `vite.config.js` matches the repository name:
 ```javascript
-base: '/research-ai-fe/',
+base: '/aion-ai-research/',
 ```
 
 ### Issue: Assets Not Loading
@@ -145,7 +145,7 @@ base: './',
 ```
 To:
 ```javascript
-base: '/research-ai-fe/',
+base: '/aion-ai-research/',
 ```
 
 ### 2. Created GitHub Actions Workflow
@@ -186,10 +186,8 @@ git push origin main
 ## Live Site URL
 Once deployed, your frontend will be available at:
 ```
-https://mahendra705.github.io/research-ai-fe/
+https://deepinsightlabs25-tech.github.io/aion-ai-research/
 ```
-
-Replace `mahendra705` with your GitHub username if deploying to a different account.
 
 ---
 
