@@ -1,0 +1,249 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-ink-50 text-ink-800 font-body;
+    background-image: radial-gradient(circle at top, rgba(79, 70, 229, 0.08) 0%, transparent 45%);
+  }
+
+  ::selection {
+    @apply bg-brand-100 text-brand-700;
+  }
+}
+
+@layer components {
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(148, 163, 184, 0.12) 25%,
+      rgba(148, 163, 184, 0.22) 50%,
+      rgba(148, 163, 184, 0.12) 75%
+    );
+    background-size: 1000px 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-ink-100;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-ink-300 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-400;
+  }
+
+  .research-prose h1 {
+    @apply font-display text-3xl font-bold text-ink-900 mb-4 mt-8 leading-tight;
+  }
+  .research-prose h2 {
+    @apply font-display text-2xl font-semibold text-ink-900 mb-3 mt-7 pb-2 border-b border-ink-200 leading-snug;
+  }
+  .research-prose h3 {
+    @apply font-display text-xl font-semibold text-ink-800 mb-2 mt-5;
+  }
+  .research-prose h4 {
+    @apply font-body text-base font-semibold text-ink-600 uppercase tracking-widest mb-2 mt-4;
+  }
+  .research-prose p {
+    @apply text-ink-700 leading-relaxed mb-4 text-[15px];
+  }
+  .research-prose ul {
+    @apply list-none pl-0 mb-4 space-y-2;
+  }
+  .research-prose ul li {
+    @apply text-ink-700 text-[15px] leading-relaxed pl-5 relative;
+  }
+  .research-prose ul li::before {
+    content: '—';
+    @apply absolute left-0 text-brand-500 font-mono;
+  }
+  .research-prose ol {
+    @apply list-decimal pl-5 mb-4 space-y-2;
+  }
+  .research-prose ol li {
+    @apply text-ink-700 text-[15px] leading-relaxed pl-1;
+  }
+  .research-prose ol li::marker {
+    @apply text-brand-500 font-mono font-medium;
+  }
+  .research-prose blockquote {
+    @apply border-l-2 border-brand-500 pl-4 italic text-ink-600 my-4;
+  }
+  .research-prose code {
+    @apply font-mono text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded text-sm;
+  }
+  .research-prose pre {
+    @apply bg-ink-900 border border-ink-800 rounded-lg p-4 overflow-x-auto mb-4;
+  }
+  .research-prose pre code {
+    @apply bg-transparent px-0 py-0 text-ink-100;
+  }
+  .research-prose strong {
+    @apply font-semibold text-ink-900;
+  }
+  .research-prose em {
+    @apply italic text-ink-700;
+  }
+  .research-prose hr {
+    @apply border-ink-200 my-6;
+  }
+  .research-prose a {
+    @apply text-brand-600 underline underline-offset-2 hover:text-brand-700 transition-colors;
+  }
+  .research-prose table {
+    @apply w-full border-collapse mb-6 text-sm;
+  }
+  .research-prose thead tr {
+    @apply border-b border-ink-200;
+  }
+  .research-prose th {
+    @apply text-left text-ink-600 font-medium font-mono uppercase tracking-wider text-xs py-2 pr-4;
+  }
+  .research-prose td {
+    @apply text-ink-700 py-2 pr-4 border-b border-ink-100;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-xl bg-brand-600 text-white px-5 py-3 font-semibold transition-all duration-200 shadow-sm shadow-brand-600/25;
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply bg-brand-700 shadow-md shadow-brand-600/30;
+  }
+  .btn-primary:disabled {
+    @apply opacity-60 cursor-not-allowed shadow-none;
+  }
+
+  .input-glow:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.16);
+  }
+
+  .animate-fade-up {
+    animation: fadeUp 0.6s ease forwards;
+  }
+  .animate-fade-up-delay-1 { animation-delay: 0.1s; opacity: 0; animation-fill-mode: forwards; animation-name: fadeUp; animation-duration: 0.6s; animation-timing-function: ease; }
+  .animate-fade-up-delay-2 { animation-delay: 0.2s; opacity: 0; animation-fill-mode: forwards; animation-name: fadeUp; animation-duration: 0.6s; animation-timing-function: ease; }
+  .animate-fade-up-delay-3 { animation-delay: 0.3s; opacity: 0; animation-fill-mode: forwards; animation-name: fadeUp; animation-duration: 0.6s; animation-timing-function: ease; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@media print {
+  @page {
+    margin: 1.25cm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    background-image: none !important;
+    color: #0f172a !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #research-pdf-root,
+  #research-pdf-root * {
+    visibility: visible;
+  }
+
+  #research-pdf-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #research-pdf-root .research-prose {
+    color: #334155 !important;
+  }
+
+  #research-pdf-root .research-prose h1,
+  #research-pdf-root .research-prose h2,
+  #research-pdf-root .research-prose h3,
+  #research-pdf-root .research-prose h4 {
+    color: #020617 !important;
+    border-color: #e5e7eb !important;
+  }
+
+  #research-pdf-root .research-prose p,
+  #research-pdf-root .research-prose li,
+  #research-pdf-root .research-prose td {
+    color: #334155 !important;
+  }
+
+  #research-pdf-root .research-prose a {
+    color: #4338ca !important;
+  }
+
+  #research-pdf-root .research-prose code {
+    color: #3730a3 !important;
+    background: #f3f4f6 !important;
+    border: 1px solid #e5e7eb;
+  }
+
+  #research-pdf-root .research-prose pre {
+    background: #f9fafb !important;
+    border: 1px solid #e5e7eb !important;
+  }
+
+  #research-pdf-root .research-prose pre code {
+    color: #374151 !important;
+    border: none !important;
+  }
+
+  #research-pdf-root .research-prose blockquote {
+    color: #64748b !important;
+    border-color: #4f46e5 !important;
+  }
+
+  #research-pdf-root .research-prose th,
+  #research-pdf-root .research-prose thead tr {
+    border-color: #d1d5db !important;
+    color: #111827 !important;
+  }
+
+  #research-pdf-root .research-prose td {
+    border-color: #e5e7eb !important;
+  }
+
+  #research-pdf-root .research-prose hr {
+    border-color: #e5e7eb !important;
+  }
+
+  #research-pdf-root .research-prose ul li::before {
+    color: #4f46e5 !important;
+  }
+
+  #research-pdf-root .research-prose ol li::marker {
+    color: #4f46e5 !important;
+  }
+}
