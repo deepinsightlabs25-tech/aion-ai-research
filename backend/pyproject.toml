@@ -1,5 +1,5 @@
 [project]
-name = "ai-report-gen-v2"
+name = "deep-insight-research-v2"
 version = "0.2.0"
 description = "AI Research agent using FastAPI, LangChain, and Qdrant"
 requires-python = ">=3.13"
