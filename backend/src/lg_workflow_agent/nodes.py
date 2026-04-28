@@ -6,7 +6,6 @@ import json
 import re
 from typing import Any
 
-from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.types import Send
 
@@ -14,16 +13,18 @@ from .prompts import (
     AGGREGATOR_PROMPT,
     CITATION_PROMPT,
     CLASSIFIER_PROMPT,
-    CONTENT_DRAFTING_PROMPT,
     DATA_COLLECTION_PROMPT,
+    LATEST_NEWS_COLLECTION_PROMPT,
     REWRITE_NOTE_TEMPLATE,
     STATISTICS_PROMPT,
     TASK_GENERATOR_PROMPT,
+    VALIDATOR_PROMPT,
     WEB_RESEARCH_PROMPT,
     WRITER_PROMPT,
 )
 from .state import WorkflowState
-from .tools import extract_urls, fetch_trends, think_tool, validate_urls
+from .sub_agents import build_role_runners
+from .tools import extract_urls, validate_urls
 
 # Map of role -> sub-agent system prompt.
 ROLE_PROMPTS: dict[str, str] = {
@@ -33,18 +34,66 @@ ROLE_PROMPTS: dict[str, str] = {
     "citation": CITATION_PROMPT,
     # non-deep roles
     "web_research": WEB_RESEARCH_PROMPT,
-    "content_drafting": CONTENT_DRAFTING_PROMPT,
+    "latest_news_collection": LATEST_NEWS_COLLECTION_PROMPT,
 }
 
 # Roles available per query type.
 ROLES_BY_TYPE: dict[str, list[str]] = {
     "deep_research": ["data_collection", "statistics", "citation"],
-    "blog": ["web_research", "content_drafting"],
-    "comparative": ["web_research", "content_drafting"],
-    "summary": ["web_research", "content_drafting"],
+    "blog": ["web_research", "latest_news_collection"],
+    "comparative": ["web_research", "latest_news_collection"],
+    "summary": ["web_research", "latest_news_collection"],
 }
 
 MAX_REWRITES = 2
+
+
+# Phrases that indicate the LLM is leaking tool/process meta-commentary.
+# Any paragraph containing one of these (case-insensitive) is dropped from
+# the final draft as a defensive post-processing step.
+_LEAKAGE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bfetch_trends\b",
+        r"\bthink_tool\b",
+        r"\bsub[- ]?agent(s)?\b",
+        r"\btool (limitation|failure|error|did not|was unable|could not)\b",
+        r"\bdue to (tool|api|model) (limitation|constraint|issue|error)",
+        r"\bcould not be (fully )?(gathered|obtained|retrieved|completed|determined)\b",
+        r"\b(was|were) unable to (retrieve|gather|obtain|access)\b",
+        r"\bno (data|results|information) (was|were) (returned|available|found)\b",
+        r"\binsufficient data (was|is) available\b",
+        r"\bas an ai\b",
+        r"\bbased on the (information|data) provided\b",
+        r"\bthe tool did not (yield|return|provide)\b",
+        r"\bcomprehensive overview .* could not\b",
+    )
+)
+
+
+def _sanitize_report(text: str) -> str:
+    """Strip paragraphs that leak tool/process meta-commentary.
+
+    Acts as a defense-in-depth filter on top of the writer prompt. Removes any
+    paragraph (separated by blank lines) that matches a known leakage pattern.
+    Preserves headings and inline citations untouched.
+    """
+    if not text:
+        return text
+    paragraphs = re.split(r"(\n\s*\n)", text)  # keep separators
+    out: list[str] = []
+    for chunk in paragraphs:
+        if chunk.strip().startswith(("#", "-", "*", "[", "|")):
+            # Preserve headings, list items, references, and tables verbatim.
+            out.append(chunk)
+            continue
+        if any(p.search(chunk) for p in _LEAKAGE_PATTERNS):
+            continue
+        out.append(chunk)
+    cleaned = "".join(out)
+    # Collapse 3+ blank lines that may result from removed paragraphs.
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned or text  # never return empty
 
 
 # --------------------------- helpers ---------------------------------------
@@ -173,7 +222,7 @@ def create_assign_workers():
         "statistics": "statistics_agent",
         "citation": "citation_agent",
         "web_research": "web_research_agent",
-        "content_drafting": "content_drafting_agent",
+        "latest_news_collection": "latest_news_collection_agent",
     }
 
     def assign(state: WorkflowState):
@@ -187,58 +236,14 @@ def create_assign_workers():
     return assign
 
 
-def _make_subagent_runner(llm, role: str, system_prompt: str, tools: list):
-    """Build a worker function for a given role."""
-
-    def runner(payload: dict[str, Any]):
-        agent = create_agent(
-            name=f"{role}_agent",
-            model=llm,
-            tools=tools,
-            system_prompt=system_prompt,
-        )
-        user_msg = (
-            f"Query: {payload.get('query', '')}\n"
-            f"Sub-task: {payload.get('task', '')}"
-        )
-        try:
-            response = agent.invoke({"messages": [{"role": "user", "content": user_msg}]})
-            last = response["messages"][-1].content
-            if isinstance(last, list):
-                # Gemini-style multi-part content.
-                text = next(
-                    (p.get("text", "") for p in last if isinstance(p, dict) and p.get("text")),
-                    "",
-                )
-            else:
-                text = last or ""
-        except Exception as exc:
-            text = f"Sub-agent {role} failed: {exc}"
-
-        return {
-            "worker_outputs": [
-                {
-                    "subtask_id": payload.get("subtask_id"),
-                    "role": role,
-                    "task": payload.get("task", ""),
-                    "output": text or "No output produced.",
-                }
-            ]
-        }
-
-    return runner
-
-
 def create_role_nodes(llm):
-    """Return one node-callable per specialized sub-agent role."""
-    tools = [fetch_trends, think_tool]
-    return {
-        "data_collection_agent": _make_subagent_runner(llm, "data_collection", DATA_COLLECTION_PROMPT, tools),
-        "statistics_agent": _make_subagent_runner(llm, "statistics", STATISTICS_PROMPT, tools),
-        "citation_agent": _make_subagent_runner(llm, "citation", CITATION_PROMPT, tools),
-        "web_research_agent": _make_subagent_runner(llm, "web_research", WEB_RESEARCH_PROMPT, tools),
-        "content_drafting_agent": _make_subagent_runner(llm, "content_drafting", CONTENT_DRAFTING_PROMPT, tools),
-    }
+    """Return one node-callable per specialized sub-agent role.
+
+    Sub-agents are built **once** here (at graph-build time) via
+    :func:`sub_agents.build_role_runners`. The returned runners are
+    lightweight callables that simply invoke the pre-built agents.
+    """
+    return build_role_runners(llm)
 
 
 def create_node_aggregator(llm, db):
@@ -299,6 +304,7 @@ def create_node_writer(llm, db):
              HumanMessage(content=prompt)]
         )
         draft = response.content if isinstance(response.content, str) else str(response.content)
+        draft = _sanitize_report(draft)
 
         _persist(db, state.get("task_id", ""), "draft", draft)
         # Reset invalid refs after applying them in a rewrite pass.
@@ -307,44 +313,183 @@ def create_node_writer(llm, db):
     return node_writer
 
 
-def create_node_validator(db):
-    """Verify all referenced links and trigger rewrites on broken refs."""
+def _build_reference_snippets(
+    aggregated: dict[str, Any],
+    draft: str,
+    radius: int = 220,
+) -> list[dict[str, Any]]:
+    """For each reference build {id, url, title, snippet} for relevance scoring.
+
+    The snippet is the surrounding text of the first occurrence of the inline
+    [n] citation in the report; falls back to the section content or the
+    reference title if no inline marker is found.
+    """
+    refs = aggregated.get("references", []) or []
+    sections = aggregated.get("sections", []) or []
+    full_text = draft or "\n\n".join(
+        s.get("content", "") for s in sections if isinstance(s, dict)
+    )
+
+    out: list[dict[str, Any]] = []
+    for r in refs:
+        if not isinstance(r, dict):
+            continue
+        rid = r.get("id")
+        url = r.get("url", "")
+        title = r.get("title", "")
+        snippet = ""
+        if rid is not None and full_text:
+            marker = f"[{rid}]"
+            idx = full_text.find(marker)
+            if idx != -1:
+                start = max(0, idx - radius)
+                end = min(len(full_text), idx + len(marker) + radius)
+                snippet = full_text[start:end].strip()
+        if not snippet:
+            # Fallback: any section that mentions the URL or title.
+            for s in sections:
+                content = s.get("content", "") if isinstance(s, dict) else ""
+                if (url and url in content) or (title and title in content):
+                    snippet = content[:radius * 2]
+                    break
+        if not snippet:
+            snippet = title or url
+        out.append(
+            {
+                "id": rid,
+                "url": url,
+                "title": title,
+                "snippet": snippet,
+            }
+        )
+    return out
+
+
+def create_node_validator(llm, db):
+    """Validate references on TWO axes:
+
+    1. URL reachability — HEAD/GET against each URL (broken links rejected).
+    2. LLM relevance — does the URL+snippet support the query intention/subtasks?
+    Any reference failing either check goes into ``invalid_references`` and
+    triggers a writer rewrite (capped by ``MAX_REWRITES``).
+    """
 
     def node_validator(state: WorkflowState):
         draft = state.get("draft_report", "")
-        urls = extract_urls(draft)
-        results = validate_urls(urls)
-        broken = [u for u, ok in results.items() if not ok]
+        aggregated = state.get("aggregated", {}) or {}
+        query = state.get("query", "")
+        query_type = state.get("query_type", "")
+        subtasks = state.get("subtasks", []) or []
+
+        references = _build_reference_snippets(aggregated, draft)
+
+        # If the aggregator produced no structured refs, fall back to URLs in the draft.
+        if not references:
+            for i, url in enumerate(extract_urls(draft), start=1):
+                references.append(
+                    {"id": i, "url": url, "title": "", "snippet": draft[:400]}
+                )
 
         iterations = state.get("rewrite_iterations", 0)
+        task_id = state.get("task_id", "")
 
-        if not broken:
-            _persist(db, state.get("task_id", ""), "validation",
-                     {"status": "VALID", "checked": len(urls)})
+        if not references:
+            _persist(db, task_id, "validation", {"status": "VALID", "checked": 0})
             return {
                 "final_report": draft,
-                "validation_feedback": "VALID",
+                "validation_feedback": "VALID (no references)",
+                "invalid_references": [],
+            }
+
+        # ---- 1. URL reachability ------------------------------------------------
+        all_urls = [r["url"] for r in references if r.get("url")]
+        reach = validate_urls(all_urls) if all_urls else {}
+        broken = [u for u, ok in reach.items() if not ok]
+
+        # Only ask the LLM to evaluate references whose URL is reachable; broken
+        # ones are already invalid.
+        live_refs = [r for r in references if reach.get(r.get("url", ""), False)]
+
+        # ---- 2. LLM relevance ---------------------------------------------------
+        irrelevant: list[str] = []
+        verdict_log: list[dict[str, Any]] = []
+        llm_error: str | None = None
+
+        if live_refs:
+            subtasks_rendered = "\n".join(
+                f"- [{st.get('role', '?')}] {st.get('task', '')}" for st in subtasks
+            ) or "(none)"
+            refs_rendered = json.dumps(live_refs, indent=2, default=str)[:8000]
+            prompt = VALIDATOR_PROMPT.format(
+                query=query,
+                query_type=query_type,
+                subtasks=subtasks_rendered,
+                references=refs_rendered,
+            )
+            try:
+                response = llm.invoke(prompt)
+                parsed = _safe_json_load(getattr(response, "content", "") or "")
+                verdicts = parsed.get("verdicts", []) if isinstance(parsed, dict) else []
+                for v in verdicts:
+                    if not isinstance(v, dict):
+                        continue
+                    verdict_log.append(v)
+                    if v.get("relevant") is False and v.get("url"):
+                        irrelevant.append(v["url"])
+            except Exception as exc:
+                llm_error = str(exc)
+
+        # Combined invalid set (broken + irrelevant), de-duplicated, order-preserving.
+        seen: set[str] = set()
+        invalid: list[str] = []
+        for u in broken + irrelevant:
+            if u and u not in seen:
+                seen.add(u)
+                invalid.append(u)
+
+        # ---- Decision -----------------------------------------------------------
+        if not invalid:
+            _persist(db, task_id, "validation", {
+                "status": "VALID",
+                "checked": len(references),
+                "verdicts": verdict_log,
+                "llm_error": llm_error,
+            })
+            return {
+                "final_report": draft,
+                "validation_feedback": "VALID" + (
+                    f" (validator LLM error: {llm_error})" if llm_error else ""
+                ),
                 "invalid_references": [],
             }
 
         if iterations >= MAX_REWRITES:
-            # Stop looping; strip broken URLs from the draft and accept it.
             cleaned = draft
-            for u in broken:
-                cleaned = cleaned.replace(u, "[broken link removed]")
-            _persist(db, state.get("task_id", ""), "validation",
-                     {"status": "FORCED_FINISH", "broken": broken})
+            for u in invalid:
+                cleaned = cleaned.replace(u, "[invalid link removed]")
+            _persist(db, task_id, "validation", {
+                "status": "FORCED_FINISH",
+                "broken": broken,
+                "irrelevant": irrelevant,
+                "verdicts": verdict_log,
+            })
             return {
                 "final_report": cleaned,
                 "validation_feedback": f"FORCED_FINISH after {iterations} rewrites",
                 "invalid_references": [],
             }
 
-        _persist(db, state.get("task_id", ""), "validation",
-                 {"status": "BROKEN_REFS", "broken": broken})
+        _persist(db, task_id, "validation", {
+            "status": "INVALID_REFS",
+            "broken": broken,
+            "irrelevant": irrelevant,
+            "verdicts": verdict_log,
+        })
         return {
-            "validation_feedback": f"BROKEN_REFS: {len(broken)} link(s) failed",
-            "invalid_references": broken,
+            "validation_feedback": (
+                f"INVALID_REFS: {len(broken)} broken, {len(irrelevant)} irrelevant"
+            ),
+            "invalid_references": invalid,
             "rewrite_iterations": iterations + 1,
         }
 
@@ -358,16 +503,29 @@ def create_validation_route():
 
 
 def create_node_cleanup(db):
-    """Remove all intermediate task data; retain only the final report."""
+    """Persist the final report against the original query, then drop intermediates."""
 
     def node_cleanup(state: WorkflowState):
-        if db is not None and state.get("task_id"):
+        final_report = state.get("final_report") or state.get("draft_report") or ""
+        query = state.get("query", "")
+        task_id = state.get("task_id", "")
+
+        # Persist the finished report keyed by the original query (best-effort).
+        if db is not None and query and final_report:
             try:
-                db.cleanup_task_data(state["task_id"])
+                db.save_report(query, final_report)
             except Exception:
                 pass
+
+        # Drop intermediate per-task artifacts.
+        if db is not None and task_id:
+            try:
+                db.cleanup_task_data(task_id)
+            except Exception:
+                pass
+
         if not state.get("final_report"):
-            return {"final_report": state.get("draft_report", "No Report Generated")}
+            return {"final_report": final_report or "No Report Generated"}
         return {}
 
     return node_cleanup

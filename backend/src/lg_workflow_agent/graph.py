@@ -23,7 +23,7 @@ SUBAGENT_NODE_NAMES = [
     "statistics_agent",
     "citation_agent",
     "web_research_agent",
-    "content_drafting_agent",
+    "latest_news_collection_agent",
 ]
 
 
@@ -51,7 +51,7 @@ class WorkflowGraphBuilder:
 
         wf.add_node("aggregator", create_node_aggregator(self.llm, self.db))
         wf.add_node("writer", create_node_writer(self.llm, self.db))
-        wf.add_node("validator", create_node_validator(self.db))
+        wf.add_node("validator", create_node_validator(self.llm, self.db))
         wf.add_node("cleanup", create_node_cleanup(self.db))
 
         # Linear front: START -> classify -> task_gen -> fan-out

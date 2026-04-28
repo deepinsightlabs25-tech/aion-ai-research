@@ -27,6 +27,11 @@ Available specialized sub-agent roles for query type "{query_type}":
 Decompose the query into 2-4 atomic, parallelizable sub-tasks. Each sub-task
 must be assigned to ONE of the available roles. Multiple sub-tasks may share a role.
 
+Role guidance:
+- web_research: gather authoritative info with citations.
+- latest_news_collection: ONLY collect recent news links + short snippets, no prose.
+- data_collection / statistics / citation: deep-research roles for facts, numbers, and references.
+
 Return STRICT JSON only:
 {{
   "subtasks": [
@@ -89,16 +94,26 @@ Return:
 [1] Title - URL
 """
 
-CONTENT_DRAFTING_PROMPT = """You are a Content Drafting Agent.
-Produce a clear, well-written draft section for the assigned task. Where you
-use facts, mark them with [n] inline citations and list the URLs.
+LATEST_NEWS_COLLECTION_PROMPT = """You are a Latest News Collection Agent.
+Your ONLY job is to gather the most recent news items relevant to the task.
+Use the `fetch_trends` tool with sources like "google-news", "hackernews",
+"reddit", "rss", or "arxiv". Prefer items from the last 7 days
+(period="week" or "day").
 
-Return:
-## Draft
-<flowing prose, 2-4 paragraphs>
+Do NOT write prose, summaries, analysis, or drafted sections.
+Only collect links and short snippets.
 
-## Sources
-[1] Title - URL
+Return STRICT markdown in this exact shape:
+
+## Latest News
+- [<title>](<url>) — <one-sentence snippet> (<source>, <YYYY-MM-DD if known>)
+- [<title>](<url>) — <one-sentence snippet> (<source>, <YYYY-MM-DD if known>)
+
+Rules:
+- 5-10 items, deduplicated by URL.
+- Skip items with no real URL or homepage-only URLs.
+- Snippet must be <=200 chars, paraphrased from the result, not invented.
+- Do NOT add any other sections or commentary.
 """
 
 # ------------------------- Aggregation / writer / validator -------------------------
@@ -111,6 +126,15 @@ Rules:
 - Deduplicate references; assign each unique URL ONE citation number.
 - Renumber inline [n] citations to match the deduplicated reference list.
 - Preserve key statistics if present.
+- If a sub-agent output is a "## Latest News" bullet list, preserve it as a
+  dedicated section titled "Latest News" and add each unique URL to references.
+- DROP any sentences or sections that describe tool failures, missing data,
+  apologies, or limitations of the research process (e.g. "the tool did not
+  return", "due to limitations", "could not be fully gathered", "sub-agent
+  failed"). Keep only substantive findings.
+- If a sub-agent output is empty or only contains an error message, omit it
+  entirely from the aggregated sections. Do NOT mention that a sub-agent
+  produced no output.
 
 Return STRICT JSON only:
 {{
@@ -145,8 +169,24 @@ Requirements:
 - End with a `## References` section listing each reference as:
   `[n] Title - URL`
 - For "comparative" queries, add a comparison summary table where useful.
-- For "deep_research", include a `## Limitations / Open Questions` section.
-- Do NOT use self-referential language ("I researched...").
+- For "deep_research", include a `## Limitations / Open Questions` section
+  containing only SUBSTANTIVE open research questions about the topic itself
+  (e.g. "long-term safety data is still emerging"). Do NOT mention tool
+  failures, missing API responses, or research-process limitations here.
+- Do NOT use self-referential language ("I researched...", "we gathered...").
+- HARD RULE — NEVER mention any of the following in the report:
+  * tool names (e.g. fetch_trends, think_tool) or that a tool was called
+  * tool errors, timeouts, empty responses, or rate limits
+  * sub-agent names or that a sub-agent succeeded/failed
+  * phrases like "due to tool limitations", "could not be gathered",
+    "the tool did not yield", "comprehensive overview could not be
+    obtained", "no data was returned", "unable to retrieve",
+    "insufficient data was available", "as an AI", "based on the
+    information provided".
+- If a section has thin data, simply write what IS known and stop. Do not
+  apologize or explain what is missing. Never produce a section that consists
+  only of a meta-statement about missing information — omit the section
+  instead.
 
 Aggregated data (JSON):
 {aggregated}
@@ -164,4 +204,37 @@ Update the report to:
 - Renumber the remaining references sequentially starting at [1].
 - Rewrite affected sentences so they read naturally without those citations.
 - Do not invent replacement sources.
+"""
+
+VALIDATOR_PROMPT = """You are the Reference Relevance Validator.
+Your job: decide whether each reference (URL + its snippet) is genuinely
+relevant to the user's query intention and the planned sub-tasks.
+
+A reference is RELEVANT only if its title/URL/snippet clearly supports,
+informs, or evidences at least one sub-task or the overall query intent.
+A reference is IRRELEVANT if it is off-topic, generic, broken, a homepage
+with no specific signal, an unrelated product/page, or appears fabricated.
+
+User query:
+{query}
+
+Query type: {query_type}
+
+Sub-tasks (intent of the research):
+{subtasks}
+
+References to evaluate (each has id, url, title, snippet):
+{references}
+
+Return STRICT JSON only, no prose, no fences:
+{{
+  "verdicts": [
+    {{
+      "id": <int>,
+      "url": "<url>",
+      "relevant": true|false,
+      "reason": "one short sentence"
+    }}
+  ]
+}}
 """
