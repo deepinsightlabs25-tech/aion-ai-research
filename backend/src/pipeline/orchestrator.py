@@ -3,7 +3,7 @@ import logging
 from typing import Dict, List, Any, Optional
 
 from src.db.database import VectorDBContext
-from src.agent.core import ResearchAgent
+from src.lg_workflow_agent import WorkflowAgent
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +24,10 @@ class ResearchPipeline:
     def __init__(
         self,
         db: Optional[VectorDBContext] = None,
-        agent: Optional[ResearchAgent] = None,
+        agent: Optional[WorkflowAgent] = None,
     ):
         self.db = db or VectorDBContext()
-        self.agent = agent or ResearchAgent()
+        self.agent = agent or WorkflowAgent(db=self.db)
         self._tasks: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------

@@ -3,7 +3,7 @@ conftest.py — shared pytest fixtures for the entire test suite.
 
 Provides:
   - in-memory VectorDBContext (no Qdrant cloud needed)
-  - a pre-built mock ResearchAgent
+  - a pre-built mock WorkflowAgent
   - a ResearchPipeline wired to both stubs
   - a FastAPI TestClient
 """
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from src.db.database import VectorDBContext
-from src.agent.core import ResearchAgent
+from src.lg_workflow_agent import WorkflowAgent
 from src.pipeline.orchestrator import ResearchPipeline
 
 
@@ -47,14 +47,15 @@ FAKE_REPORT = "# Test Report\n\nThis is a mocked research report."
 
 
 @pytest.fixture()
-def mock_agent() -> ResearchAgent:
-    """ResearchAgent whose invoke() returns a canned report instantly."""
-    agent = ResearchAgent()
+def mock_agent() -> WorkflowAgent:
+    """WorkflowAgent whose invoke() returns a canned report instantly."""
+    agent = WorkflowAgent.__new__(WorkflowAgent)
+    agent.db = MagicMock()
     # Mock the graph builder and graph for the refactored architecture
-    agent._graph_builder = MagicMock()
+    agent._builder = MagicMock()
     agent._graph = MagicMock()
-    agent._graph_builder.invoke.return_value = {"final_report": FAKE_REPORT}
-    agent._graph_builder.astream = MagicMock()
+    agent._builder.invoke.return_value = {"final_report": FAKE_REPORT}
+    agent._builder.astream = MagicMock()
     # Mark as ready since we've set up the graph
     return agent
 
