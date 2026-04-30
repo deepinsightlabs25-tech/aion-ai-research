@@ -19,6 +19,8 @@ dependencies = [
     "deepagents>=0.5.3",
     "psycopg2-binary>=2.9.0",
     "sqlalchemy>=2.0.0",
+    "matplotlib>=3.10.9",
+    "pillow>=12.2.0",
 ]
 
 [project.scripts]
