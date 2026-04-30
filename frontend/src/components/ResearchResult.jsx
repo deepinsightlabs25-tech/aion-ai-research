@@ -105,7 +105,7 @@ const ResearchResult = ({ content, topic, taskId, steps = [], onBack }) => {
   const completedStepCount = Array.isArray(steps) ? steps.length : 0
 
   return (
-    <section className="w-full max-w-5xl mx-auto animate-fade-up">
+    <section className="w-full max-w-3xl mx-auto animate-fade-up">
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <button
           onClick={onBack}

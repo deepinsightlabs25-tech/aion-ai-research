@@ -7,8 +7,9 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import TopicInput      from '../components/TopicInput'
-import Loader          from '../components/Loader'
-import ResearchResult  from '../components/ResearchResult'
+import Loader             from '../components/Loader'
+import WorkflowGraphPanel from '../components/WorkflowGraphPanel'
+import ResearchResult     from '../components/ResearchResult'
 import { runResearchQuery } from '../services/api'
 
 // ─── App States ───────────────────────────────────────────────────────────────
@@ -21,7 +22,7 @@ const STATE = {
 
 // ─── Error Banner ─────────────────────────────────────────────────────────────
 const ErrorBanner = ({ message, onRetry }) => (
-  <div className="w-full max-w-5xl mx-auto animate-fade-up">
+  <div className="w-full max-w-3xl mx-auto animate-fade-up">
     <div className="bg-white border border-red-200 rounded-2xl p-8 text-center shadow-lg shadow-red-100/60">
       <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500">
@@ -162,7 +163,7 @@ const Home = ({ isAuthenticated, onRequireLogin }) => {
           ref={resultRef}
           className="px-4 pb-24 flex flex-col items-center"
         >
-          <div className="w-full max-w-5xl mb-12 flex items-center gap-4">
+          <div className="w-full max-w-3xl mb-12 flex items-center gap-4">
             <div className="flex-1 h-px bg-ink-200" />
             <span className="text-ink-500 font-mono text-[11px] uppercase tracking-wider">
               {appState === STATE.LOADING ? 'Working' : appState === STATE.RESULT ? 'Result' : 'Error'}
@@ -170,7 +171,17 @@ const Home = ({ isAuthenticated, onRequireLogin }) => {
             <div className="flex-1 h-px bg-ink-200" />
           </div>
 
-          {appState === STATE.LOADING && <Loader statusHint={jobStatus} steps={progressSteps} />}
+          {appState === STATE.LOADING && (
+            <div className="w-full max-w-6xl xl:max-w-7xl mx-auto flex flex-col lg:flex-row gap-8 lg:gap-10 items-stretch justify-center animate-fade-up">
+              <div className="flex-1 min-w-0 w-full max-w-3xl lg:mx-0 mx-auto">
+                <Loader statusHint={jobStatus} steps={progressSteps} />
+              </div>
+              <WorkflowGraphPanel
+                steps={progressSteps}
+                className="w-full max-w-md lg:max-w-[380px] mx-auto lg:mx-0 lg:sticky lg:top-24 lg:self-start shrink-0"
+              />
+            </div>
+          )}
 
           {appState === STATE.RESULT && research && (
             <ResearchResult

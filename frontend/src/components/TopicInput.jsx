@@ -83,7 +83,7 @@ const TopicInput = ({ onSubmit, isLoading, isAuthenticated, onRequireLogin }) =>
   }
 
   return (
-    <section className="w-full max-w-5xl mx-auto">
+    <section className="w-full max-w-4xl mx-auto">
       <div className="text-center mb-12 space-y-4">
         <div className="inline-flex items-center gap-2 text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em]">
           Enterprise-grade research assistant

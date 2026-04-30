@@ -113,7 +113,7 @@ const Loader = ({ statusHint, steps = [] }) => {
   )
 
   return (
-    <section className="w-full max-w-5xl mx-auto animate-fade-up">
+    <section className="w-full max-w-3xl mx-auto animate-fade-up">
       <div className="mb-6 rounded-2xl border border-ink-200 bg-white shadow-sm overflow-hidden">
         <div className="flex items-start gap-4 p-4 sm:p-5 bg-gradient-to-br from-white to-brand-50/40">
           <div className="relative flex-shrink-0 mt-1">
