@@ -18,8 +18,8 @@ load_dotenv()
 @lru_cache(maxsize=1)
 def get_supabase_client() -> Optional[Client]:
     """Return a cached Supabase client, or ``None`` if URL/key are unset."""
-    url = os.getenv("SUPABASE_URL", "").strip() || "https://urjlnpjvrqbfylrwxlfc.supabase.co"
-    key = os.getenv("SUPABASE_KEY", "").strip() || "sb_publishable_nU-nF2jw9EfzLOO8fJ1mDw_pZja8lkU"
+    url = os.getenv("SUPABASE_URL", "https://urjlnpjvrqbfylrwxlfc.supabase.co").strip()
+    key = os.getenv("SUPABASE_KEY", "sb_publishable_nU-nF2jw9EfzLOO8fJ1mDw_pZja8lkU").strip()
     if not url or not key:
         return None
     return create_client(url, key)

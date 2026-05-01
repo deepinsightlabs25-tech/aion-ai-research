@@ -186,9 +186,14 @@ class ResearchPipeline:
         self.db.cleanup()
         self._tasks.clear()
 
+    def cleanup_all(self) -> None:
+        """Wipe all vector DB collections and clear in-memory tasks."""
+        self.db.cleanup_all()
+        self._tasks.clear()
+
     # ----------------------------------------------------------------------
     # Full cleanup (DB + in-memory state)
     # ----------------------------------------------------------------------
     def full_cleanup(self) -> None:
-        """Convenience method to wipe DB and clear all tasks."""
-        self.db.cleanup_all()
+        """Same as :meth:`cleanup_all` — clears all collections and task state."""
+        self.cleanup_all()
