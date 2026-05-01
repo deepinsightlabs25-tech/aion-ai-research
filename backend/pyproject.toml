@@ -20,6 +20,7 @@ dependencies = [
     "psycopg2-binary>=2.9.0",
     "sqlalchemy>=2.0.0",
     "supabase==2.29.0",
+    "matplotlib>=3.10.9",
 ]
 
 [project.scripts]
