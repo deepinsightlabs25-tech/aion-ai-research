@@ -8,6 +8,21 @@ import React, { useState, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+// react-markdown v9 strips `data:` URIs from image src by default, which
+// removes the inline base64 charts/images produced by the report_finalizer
+// node on the backend. Allow `data:image/...` while still blocking other
+// potentially unsafe schemes (javascript:, vbscript:, file:, etc.).
+const safeUrlTransform = (url) => {
+  if (typeof url !== 'string') return ''
+  if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml|bmp);/i.test(url)) {
+    return url
+  }
+  if (/^(https?:|mailto:|tel:|#|\/|\.\/|\.\.\/)/i.test(url)) {
+    return url
+  }
+  return ''
+}
+
 // ─── Icons ────────────────────────────────────────────────────────────────────
 const CopyIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -174,7 +189,10 @@ const ResearchResult = ({ content, topic, taskId, steps = [], onBack }) => {
 
         <div className="px-8 py-8">
           <div className="research-prose">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              urlTransform={safeUrlTransform}
+            >
               {content}
             </ReactMarkdown>
           </div>
