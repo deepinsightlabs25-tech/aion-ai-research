@@ -73,6 +73,13 @@ async def create_query(request: QueryRequest, user: dict = Depends(get_current_u
     result = pipeline.process_query(request.query)
 
     if result["status"] == "processing":
+        db.record_research_task(
+            result["task_id"],
+            user["sub"],
+            request.query,
+            email=user.get("email"),
+            name=user.get("name"),
+        )
         # Ensure the task record carries a steps list from the start
         pipeline._tasks[result["task_id"]]["steps"] = []
         # Fire-and-forget: streams step updates into the task record

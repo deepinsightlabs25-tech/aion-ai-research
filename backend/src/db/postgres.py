@@ -4,7 +4,16 @@ from contextlib import contextmanager
 from typing import Optional
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, Text, TIMESTAMP, func
+from sqlalchemy import (
+    create_engine,
+    Column,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    TIMESTAMP,
+    func,
+)
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
@@ -36,9 +45,21 @@ class User(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_login = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
+
+class Task(Base):
+    """Persisted research jobs: ties pipeline ``task_id`` (UUID) to a user and query."""
+
+    __tablename__ = "tasks"
+
+    task_id = Column(String(36), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_query = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
 class Database:
     def __init__(self):
-        database_url = os.getenv("DATABASE_URL", "").strip() || "postgresql://postgres.urjlnpjvrqbfylrwxlfc:Gate%402026%403@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres"
+        database_url = os.getenv("DATABASE_URL", "postgresql://postgres.urjlnpjvrqbfylrwxlfc:Gate%402026%403@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres").strip()
         if not database_url:
             # For testing or when database is not configured
             self.engine = None
@@ -137,6 +158,35 @@ class Database:
             session.commit()
             session.refresh(user)
             return user
+
+    def record_research_task(
+        self,
+        task_id: str,
+        google_id: str,
+        user_query: str,
+        *,
+        email: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> None:
+        """Store a new async research task (matches in-memory ``ResearchPipeline`` task_id)."""
+        if not self.engine:
+            return
+        try:
+            with self.get_session() as session:
+                user = session.query(User).filter(User.google_id == google_id).first()
+                if not user:
+                    user = User(google_id=google_id, email=email, name=name)
+                    session.add(user)
+                    session.flush()
+                session.add(
+                    Task(task_id=task_id, user_id=user.id, user_query=user_query)
+                )
+        except Exception:
+            logger.exception(
+                "Failed to persist research task task_id=%s google_id=%s",
+                task_id,
+                google_id,
+            )
 
 # Global database instance
 db = Database()

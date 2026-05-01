@@ -10,6 +10,8 @@ Provides:
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+import src.api.server as server_module
 from fastapi.testclient import TestClient
 
 from src.db.database import VectorDBContext
@@ -78,13 +80,13 @@ def pipeline(in_memory_db, mock_agent) -> ResearchPipeline:
 @pytest.fixture()
 def api_client(pipeline) -> TestClient:
     """TestClient whose pipeline singleton is replaced with our stub pipeline."""
-    import src.api.server as server_module
-
     original_pipeline = server_module.pipeline
     server_module.pipeline = pipeline
     pipeline.initialize()
 
-    client = TestClient(server_module.app)
-    yield client
+    # Avoid writing to Postgres when DATABASE_URL is set in the developer .env
+    with patch.object(server_module.db, "record_research_task"):
+        client = TestClient(server_module.app)
+        yield client
 
     server_module.pipeline = original_pipeline
