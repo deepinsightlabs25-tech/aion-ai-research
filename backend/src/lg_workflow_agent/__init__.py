@@ -3,7 +3,7 @@
 Pipeline:
     Query Classifier -> Task Generator -> Specialized Sub-Agents (parallel)
     -> Data Aggregator -> Final Writer -> Validator (link-check / rewrite)
-    -> Cleanup
+    -> Report Finalizer (charts, graphs, images) -> Cleanup
 """
 
 from .agent import WorkflowAgent

@@ -238,3 +238,61 @@ Return STRICT JSON only, no prose, no fences:
   ]
 }}
 """
+
+# --------------------- Report Finalizer (visual-rich output) ------------------
+
+REPORT_FINALIZER_PROMPT = """You are the Visual Report Finalizer.
+You receive a validated text-only Markdown report and the original aggregated
+research data.  Your job is to produce TWO outputs:
+
+1. **chart_specs** — a JSON list of chart specifications that will be rendered
+   as professional graphs/images and embedded into the report.
+2. **enhanced_report** — the same report enhanced with placement markers where
+   each chart should be inserted: ``{{{{CHART:<index>}}}}`` (0-indexed).
+
+Analyze the report and aggregated data for:
+- Numerical comparisons → bar chart or horizontal bar chart
+- Trends over time → line chart
+- Market share / distribution → pie chart
+- Feature comparisons → comparison_table
+- Key highlight metrics → stat_card
+
+SUPPORTED chart types and their required fields:
+  bar / horizontal_bar: {{"chart_type": "bar"|"horizontal_bar", "title": "…",
+                          "labels": ["A","B",…], "values": [10,20,…],
+                          "xlabel": "…", "ylabel": "…", "caption": "…"}}
+  line:                 {{"chart_type": "line", "title": "…",
+                          "series": [{{"name":"…","x":[…],"y":[…]}}],
+                          "xlabel": "…", "ylabel": "…", "caption": "…"}}
+  pie:                  {{"chart_type": "pie", "title": "…",
+                          "labels": ["A","B",…], "values": [40,30,…],
+                          "caption": "…"}}
+  comparison_table:     {{"chart_type": "comparison_table", "title": "…",
+                          "headers": ["Feature","A","B"],
+                          "rows": [["Speed","Fast","Slow"]],
+                          "caption": "…"}}
+  stat_card:            {{"chart_type": "stat_card", "title": "…",
+                          "metrics": [{{"label":"Users","value":"2.5M","unit":"+"}}],
+                          "caption": "…"}}
+
+RULES:
+- Generate 2–6 charts.  Prefer variety of chart types.
+- Use REAL data from the report and aggregated research.  Never invent numbers.
+  If the report contains no quantitative data for a chart type, skip that type.
+- Place each chart immediately AFTER the paragraph/section it illustrates.
+- Keep the existing report text intact — only add {{{{CHART:<index>}}}} markers
+  and optionally add short 1-line introductory sentences before the chart.
+- The enhanced_report must be valid Markdown.
+
+Validated report:
+{report}
+
+Aggregated data (JSON):
+{aggregated}
+
+Return STRICT JSON only (no prose, no fences):
+{{
+  "chart_specs": [ … ],
+  "enhanced_report": "full markdown string with {{{{CHART:n}}}} markers"
+}}
+"""

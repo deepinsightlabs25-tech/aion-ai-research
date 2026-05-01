@@ -15,6 +15,7 @@ from .prompts import (
     CLASSIFIER_PROMPT,
     DATA_COLLECTION_PROMPT,
     LATEST_NEWS_COLLECTION_PROMPT,
+    REPORT_FINALIZER_PROMPT,
     REWRITE_NOTE_TEMPLATE,
     STATISTICS_PROMPT,
     TASK_GENERATOR_PROMPT,
@@ -22,6 +23,7 @@ from .prompts import (
     WEB_RESEARCH_PROMPT,
     WRITER_PROMPT,
 )
+from .chart_generator import generate_charts_for_report
 from .state import WorkflowState
 from .sub_agents import build_role_runners
 from .tools import extract_urls, validate_urls
@@ -500,6 +502,75 @@ def create_validation_route():
     def route(state: WorkflowState):
         return "valid" if state.get("validation_feedback") == "VALID" or state.get("final_report") else "rewrite"
     return route
+
+
+def create_node_report_finalizer(llm, db):
+    """Enrich the validated report with auto-generated charts, graphs and images.
+
+    This node:
+    1. Sends the final report + aggregated data to the LLM to identify
+       data points suitable for visualisation.
+    2. Renders charts via matplotlib into base64 PNG images.
+    3. Embeds them as inline ``![caption](data:image/png;…)`` in the report.
+    """
+
+    def node_report_finalizer(state: WorkflowState):
+        report = state.get("final_report") or state.get("draft_report") or ""
+        aggregated = state.get("aggregated", {})
+
+        if not report:
+            return {}
+
+        # Ask the LLM to produce chart specifications and an enhanced report
+        # with {{CHART:<index>}} placement markers.
+        prompt = REPORT_FINALIZER_PROMPT.format(
+            report=report,
+            aggregated=json.dumps(aggregated, indent=2, default=str)[:12000],
+        )
+        try:
+            response = llm.invoke(
+                [SystemMessage(content="You are a data-visualisation specialist. Return STRICT JSON only."),
+                 HumanMessage(content=prompt)]
+            )
+            parsed = _safe_json_load(getattr(response, "content", "") or "")
+        except Exception:
+            # If the LLM call fails, pass through the report unchanged.
+            _persist(db, state.get("task_id", ""), "report_finalizer",
+                     {"status": "LLM_ERROR"})
+            return {}
+
+        chart_specs = parsed.get("chart_specs", []) if isinstance(parsed, dict) else []
+        enhanced_report = parsed.get("enhanced_report", report) if isinstance(parsed, dict) else report
+
+        # Render chart images
+        rendered_images: list[dict[str, str]] = []
+        if chart_specs:
+            rendered_images = generate_charts_for_report(chart_specs)
+
+        # Replace {{CHART:<index>}} markers with embedded images
+        final_visual_report = enhanced_report
+        for i, img in enumerate(rendered_images):
+            marker = f"{{{{CHART:{i}}}}}"
+            md_image = f"\n\n![{img['caption']}]({img['data_uri']})\n\n"
+            final_visual_report = final_visual_report.replace(marker, md_image)
+
+        # Clean up any unreplaced markers (if chart rendering failed for some)
+        final_visual_report = re.sub(r"\{\{CHART:\d+\}\}", "", final_visual_report)
+        # Collapse excessive blank lines
+        final_visual_report = re.sub(r"\n{3,}", "\n\n", final_visual_report).strip()
+
+        _persist(db, state.get("task_id", ""), "report_finalizer", {
+            "charts_requested": len(chart_specs),
+            "charts_rendered": len(rendered_images),
+        })
+
+        return {
+            "final_report": final_visual_report,
+            "chart_specs": chart_specs,
+            "report_images": rendered_images,
+        }
+
+    return node_report_finalizer
 
 
 def create_node_cleanup(db):

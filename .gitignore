@@ -14,7 +14,7 @@ wheels/
 .chroma/
 *_extracted_images/
 extracted_data/
-
+reports/
 
 
 .DS_Store

@@ -34,6 +34,10 @@ class WorkflowState(TypedDict, total=False):
     draft_report: str
     final_report: str
 
+    # Visual enrichment
+    chart_specs: list[dict[str, Any]]               # chart specifications from LLM
+    report_images: list[dict[str, str]]              # [{caption, data_uri}]
+
     # Validation / control
     validation_feedback: str
     invalid_references: list[str]

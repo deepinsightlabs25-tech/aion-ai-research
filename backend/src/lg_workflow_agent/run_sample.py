@@ -77,28 +77,51 @@ async def run_stream(query: str) -> None:
     print(f"Agent ready. Streaming query:\n  {query}\n")
 
     final_report = ""
+    chart_count = 0
+    image_count = 0
     async for event in agent.astream(query):
         step = event.get("step", "?")
         data = event.get("data", {})
 
-        # Compact per-step trace
+        # Compact per-step trace (avoid dumping huge base64 blobs)
         keys = sorted(k for k in data.keys() if k != "messages")
-        print(f"~~~~~~~~~~~~~~~~~~~~~~ [{step}] keys={keys} \n | data : {json.dumps(data , indent=2)}\n \n ")
-        # if data.get("query_type"):
-        #     print(f"    query_type = {data['query_type']}")
-        # if data.get("subtasks"):
-        #     for st in data["subtasks"]:
-        #         print(f"    subtask {st['id']} [{st['role']}] -> {st['task']}")
-        # if data.get("validation_feedback"):
-        #     print(f"    validation = {data['validation_feedback']}")
+        # Summarise data — truncate any field with base64 content
+        display_data = {}
+        for k in keys:
+            v = data[k]
+            if isinstance(v, str) and len(v) > 2000:
+                display_data[k] = f"<{len(v)} chars>"
+            elif isinstance(v, list) and k in ("report_images", "chart_specs"):
+                display_data[k] = f"<{len(v)} items>"
+            else:
+                display_data[k] = v
+        print(f"~~~~~~~~~~~~~~~~~~~~~~ [{step}] keys={keys}")
+        print(f" | data : {json.dumps(display_data, indent=2, default=str)}\n")
+
         if data.get("final_report"):
             final_report = data["final_report"]
         elif data.get("draft_report"):
             final_report = data["draft_report"]
 
+        if data.get("chart_specs"):
+            chart_count = len(data["chart_specs"])
+        if data.get("report_images"):
+            image_count = len(data["report_images"])
+
+    has_images = "data:image/png;base64" in final_report
+    embedded_count = final_report.count("data:image/png;base64")
+
     print("\n=== FINAL REPORT ===\n")
-    print(final_report or "(no report produced)")
+    # Print report text but truncate base64 lines for readability
+    for line in final_report.split("\n"):
+        if "data:image/png;base64" in line:
+            # Show just the markdown image alt text, not the blob
+            print(line[:120] + "...<base64 image data>...")
+        else:
+            print(line)
     print("\n=== END REPORT ===")
+    print(f"\n📊 Charts requested: {chart_count}")
+    print(f"🖼️  Images embedded: {embedded_count}")
     if final_report:
         save_report(final_report, query)
 
