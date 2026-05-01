@@ -1,11 +1,30 @@
+import logging
 import os
+from contextlib import contextmanager
+from typing import Optional
+
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, Text, TIMESTAMP, func
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from typing import Optional
-from contextlib import contextmanager
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
+
+
+def _engine_connect_args(database_url: str) -> dict:
+    try:
+        host = (make_url(database_url).host or "").lower()
+        if "supabase.co" in host or "pooler.supabase.com" in host:
+            return {"sslmode": "require"}
+    except Exception:
+        pass
+    return {}
 
 class User(Base):
     __tablename__ = "users"
@@ -19,21 +38,54 @@ class User(Base):
 
 class Database:
     def __init__(self):
-        # database_url = os.getenv("DATABASE_URL")
-        database_url = "postgresql://postgres:Gate@2026@3@db.urjlnpjvrqbfylrwxlfc.supabase.co:5432/postgres"
+        database_url = os.getenv("DATABASE_URL", "").strip() || "postgresql://postgres.urjlnpjvrqbfylrwxlfc:Gate%402026%403@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres"
         if not database_url:
             # For testing or when database is not configured
             self.engine = None
             self.SessionLocal = None
             return
 
-        self.engine = create_engine(database_url, echo=False)
+        self.engine = create_engine(
+            database_url,
+            echo=False,
+            connect_args=_engine_connect_args(database_url),
+            pool_pre_ping=True,
+        )
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
 
-    def create_tables(self):
-        """Create all tables defined in the models."""
-        if self.engine:
+    def _disable_connection(self) -> None:
+        """Drop the engine so callers use the no-DB mock paths."""
+        if self.engine is not None:
+            self.engine.dispose()
+        self.engine = None
+        self.SessionLocal = None
+
+    def create_tables(self) -> None:
+        """Create all tables defined in the models.
+
+        If Postgres is unreachable (e.g. Supabase direct host is IPv6-only on an IPv4-only
+        network), logs a warning and disables SQL unless ``POSTGRES_STRICT_STARTUP`` is set.
+        """
+        if not self.engine:
+            return
+        strict = os.getenv("POSTGRES_STRICT_STARTUP", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        try:
             Base.metadata.create_all(bind=self.engine)
+            logger.info("Postgres schema ensured (create_all).")
+        except OperationalError as e:
+            logger.warning(
+                "Postgres connection failed (%s). "
+                "Supabase direct URLs often need IPv6 or the IPv4 add-on; use a pooler URI or "
+                "enable IPv4 in Supabase. Continuing without SQL user persistence.",
+                e.orig if getattr(e, "orig", None) else e,
+            )
+            self._disable_connection()
+            if strict:
+                raise
 
     @contextmanager
     def get_session(self) -> Session:
@@ -87,5 +139,4 @@ class Database:
             return user
 
 # Global database instance
-db = Database()</content>
-<parameter name="filePath">/workspaces/aion-ai-research/backend/src/db/postgres.py
+db = Database()
