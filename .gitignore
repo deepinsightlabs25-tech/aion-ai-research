@@ -21,4 +21,6 @@ reports/
 #logs
 logs/*
 *.log
+.agents/
+graphify-out/
 #notebooks
