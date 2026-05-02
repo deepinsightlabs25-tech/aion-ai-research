@@ -243,19 +243,21 @@ Return STRICT JSON only, no prose, no fences:
 
 REPORT_FINALIZER_PROMPT = """You are the Visual Report Finalizer.
 You receive a validated text-only Markdown report and the original aggregated
-research data.  Your job is to produce TWO outputs:
+research data. Your job is to produce TWO outputs:
 
 1. **chart_specs** — a JSON list of chart specifications that will be rendered
    as professional graphs/images and embedded into the report.
 2. **enhanced_report** — the same report enhanced with placement markers where
    each chart should be inserted: ``{{{{CHART:<index>}}}}`` (0-indexed).
 
-Analyze the report and aggregated data for:
-- Numerical comparisons → bar chart or horizontal bar chart
-- Trends over time → line chart
-- Market share / distribution → pie chart
-- Feature comparisons → comparison_table
-- Key highlight metrics → stat_card
+PRIORITY: Create charts ONLY for the most impactful data. Quality over quantity.
+
+Analyze the report and look for these HIGH-VALUE visualizations:
+- 📊 Numerical comparisons (market sizes, revenues, costs) → bar/horizontal_bar chart
+- 📈 Trends over time (growth, adoption, performance) → line chart
+- 🥧 Market share / distributions (percentages, breakdowns) → pie chart
+- 💳 Key statistics (single impressive numbers) → stat_card
+- 📋 Feature comparisons (product matrix, capabilities) → comparison_table
 
 SUPPORTED chart types and their required fields:
   bar / horizontal_bar: {{"chart_type": "bar"|"horizontal_bar", "title": "…",
@@ -275,13 +277,14 @@ SUPPORTED chart types and their required fields:
                           "metrics": [{{"label":"Users","value":"2.5M","unit":"+"}}],
                           "caption": "…"}}
 
-RULES:
-- Generate 2–6 charts.  Prefer variety of chart types.
-- Use REAL data from the report and aggregated research.  Never invent numbers.
-  If the report contains no quantitative data for a chart type, skip that type.
+SMART RULES:
+- Generate 3-8 charts, but ONLY if meaningful data exists. Quality beats quantity.
+- ALWAYS create stat_card for impressive numbers (growth %, market size, user counts).
+- ALWAYS create charts for comparisons (competitors, years, regions, products).
+- Use REAL data from the report. Never invent numbers. If no data exists, generate fewer charts.
 - Place each chart immediately AFTER the paragraph/section it illustrates.
-- Keep the existing report text intact — only add {{{{CHART:<index>}}}} markers
-  and optionally add short 1-line introductory sentences before the chart.
+- Prefer variety: don't create 5 bar charts - mix bar, line, pie, stat_card, table.
+- Keep report text intact — only add {{{{CHART:<index>}}}} markers.
 - The enhanced_report must be valid Markdown.
 
 Validated report:
