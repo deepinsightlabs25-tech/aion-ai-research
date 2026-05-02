@@ -1,12 +1,13 @@
 /**
  * App.jsx
- * Root component. Composes the Header and the Home page.
- * Dark mode is always applied (class="dark" on <html> in index.html).
+ * Root component: auth shell, header, and routed views (landing + research).
  */
 
 import React from 'react'
+import { Routes, Route } from 'react-router-dom'
 import Header from './components/Header'
-import Home   from './pages/Home'
+import Landing from './pages/Landing'
+import Home from './pages/Home'
 import { googleLogout, promptGoogleLogin } from './services/auth'
 import { clearAuthToken, fetchCurrentUser, setAuthToken } from './services/api'
 
@@ -71,10 +72,18 @@ const App = () => {
   return (
     <div className="min-h-screen font-body text-ink-800">
       <Header user={user} onGoogleCredential={handleGoogleCredential} onLogout={handleLogout} />
-      <Home
-        isAuthenticated={!isAuthLoading && Boolean(user)}
-        onRequireLogin={() => promptGoogleLogin(handleGoogleCredential).catch(() => {})}
-      />
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route
+          path="/research"
+          element={
+            <Home
+              isAuthenticated={!isAuthLoading && Boolean(user)}
+              onRequireLogin={() => promptGoogleLogin(handleGoogleCredential).catch(() => {})}
+            />
+          }
+        />
+      </Routes>
     </div>
   )
 }
