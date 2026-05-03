@@ -51,7 +51,8 @@ plt.rcParams.update(
         "legend.facecolor": "#1a1d29",
         "legend.edgecolor": "#2d3148",
         "font.size": 11,
-        "figure.dpi": 150,
+        "figure.dpi": 100,  # Performance: Reduced from 150 for faster rendering
+        "savefig.dpi": 100,  # Performance: Match save DPI
     }
 )
 

@@ -48,6 +48,8 @@ DATA_COLLECTION_PROMPT = """You are a Data Collection Agent for deep research.
 Use the available tools to gather PRIMARY information, facts, and source material
 on the given task. Prefer authoritative sources (papers, docs, reputable news).
 
+IMPORTANT: Use fetch_trends with limit=5 for efficiency (Performance optimization).
+
 Return your finding in this format:
 ## Findings
 <dense paragraph(s) of facts with inline [n] citations>
@@ -60,6 +62,8 @@ Return your finding in this format:
 STATISTICS_PROMPT = """You are a Statistics & Data Analysis Agent.
 Extract or estimate quantitative data, benchmarks, market figures, growth rates,
 or empirical results relevant to the task. Cite every number with a source.
+
+IMPORTANT: Use fetch_trends with limit=5 for efficiency (Performance optimization).
 
 Return:
 ## Key Statistics
@@ -86,6 +90,8 @@ WEB_RESEARCH_PROMPT = """You are a Web Research Agent.
 Use the available tools to gather current, relevant web information for the task.
 Include diverse sources where possible.
 
+IMPORTANT: Use fetch_trends with limit=5 for efficiency (Performance optimization).
+
 Return:
 ## Findings
 <paragraphs with inline [n] citations>
@@ -99,6 +105,8 @@ Your ONLY job is to gather the most recent news items relevant to the task.
 Use the `fetch_trends` tool with sources like "google-news", "hackernews",
 "reddit", "rss", or "arxiv". Prefer items from the last 7 days
 (period="week" or "day").
+
+IMPORTANT: Use fetch_trends with limit=5 for efficiency (Performance optimization).
 
 Do NOT write prose, summaries, analysis, or drafted sections.
 Only collect links and short snippets.

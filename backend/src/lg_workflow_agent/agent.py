@@ -30,7 +30,13 @@ class WorkflowAgent:
         model_name = os.environ.get("DEEP_AGENT_MODEL", "gemini-2.5-flash")
         if model_name.startswith("google_genai:"):
             model_name = model_name.split(":", 1)[1]
-        llm = ChatGoogleGenerativeAI(model=model_name, temperature=0.0)
+
+        # Performance optimization: Production-safe retries
+        llm = ChatGoogleGenerativeAI(
+            model=model_name,
+            temperature=0.0,
+            max_retries=2,  # Retry on transient failures
+        )
         self._builder = WorkflowGraphBuilder(llm=llm, db=self.db)
         self._graph = self._builder.build()
 

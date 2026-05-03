@@ -65,7 +65,7 @@ def fetch_trends(source: str, topic: str = "", limit: int = 10, period: str = "w
     }
     
     try:
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, timeout=15)  # Performance: Reduced from 30s
         response.raise_for_status()
         return response.text
     except Exception as e:
