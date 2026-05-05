@@ -166,7 +166,7 @@ const Home = ({ isAuthenticated, onRequireLogin }) => {
           <div className="w-full max-w-3xl mb-12 flex items-center gap-4">
             <div className="flex-1 h-px bg-ink-200" />
             <span className="text-ink-500 font-mono text-[11px] uppercase tracking-wider">
-              {appState === STATE.LOADING ? 'Working' : appState === STATE.RESULT ? 'Result' : 'Error'}
+              {appState === STATE.LOADING ? '' : appState === STATE.RESULT ? 'Result' : 'Error'}
             </span>
             <div className="flex-1 h-px bg-ink-200" />
           </div>
