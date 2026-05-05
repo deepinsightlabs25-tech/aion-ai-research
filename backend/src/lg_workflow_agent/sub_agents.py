@@ -19,10 +19,65 @@ from .prompts import (
     STATISTICS_PROMPT,
     WEB_RESEARCH_PROMPT,
 )
-from .tools import fetch_trends, think_tool
+from .tools import (
+    fetch_arxiv,
+    fetch_github,
+    fetch_google_news,
+    fetch_hackernews,
+    fetch_linkedin,
+    fetch_podcasts,
+    fetch_reddit,
+    fetch_rss,
+    fetch_youtube,
+    think_tool,
+)
 
 __all__ = ["build_sub_agents", "build_role_runners"]
 
+# Role-specific tool sets — each agent only gets tools relevant to its task
+_ROLE_TOOLS: dict[str, list] = {
+    "data_collection": [
+        fetch_hackernews,
+        fetch_github,
+        fetch_reddit,
+        fetch_rss,
+        fetch_google_news,
+        think_tool,
+    ],
+    "statistics": [
+        fetch_github,
+        fetch_hackernews,
+        fetch_arxiv,
+        fetch_youtube,
+        think_tool,
+    ],
+    "citation": [
+        fetch_arxiv,
+        fetch_rss,
+        fetch_google_news,
+        fetch_github,
+        think_tool,
+    ],
+    "web_research": [
+        fetch_hackernews,
+        fetch_youtube,
+        fetch_github,
+        fetch_linkedin,
+        fetch_reddit,
+        fetch_rss,
+        fetch_google_news,
+        think_tool,
+    ],
+    "latest_news_collection": [
+        fetch_google_news,
+        fetch_hackernews,
+        fetch_reddit,
+        fetch_rss,
+        fetch_arxiv,
+        fetch_podcasts,
+        think_tool,
+    ],
+}
 
 # Role -> (agent name suffix, system prompt)
 _ROLE_SPECS: dict[str, tuple[str, str]] = {
@@ -38,16 +93,15 @@ def build_sub_agents(llm, tools: list | None = None) -> dict[str, Any]:
     """Construct one ``create_agent`` instance per role.
 
     Called once during graph build. Returns a mapping of ``role -> agent``.
+    Each role receives only the tools relevant to its task.
     """
-    if tools is None:
-        tools = [fetch_trends, think_tool]
-
     agents: dict[str, Any] = {}
     for role, (name, prompt) in _ROLE_SPECS.items():
+        role_tools = tools if tools is not None else _ROLE_TOOLS[role]
         agents[role] = create_agent(
             name=name,
             model=llm,
-            tools=tools,
+            tools=role_tools,
             system_prompt=prompt,
         )
     return agents
