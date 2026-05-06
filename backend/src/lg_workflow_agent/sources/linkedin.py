@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from functools import lru_cache
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
@@ -11,6 +12,16 @@ from ._config import settings
 from ._models import SourceResult, TrendItem
 
 GROUNDING_REDIRECT_PREFIX = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/"
+
+
+@lru_cache(maxsize=1)
+def _get_linkedin_llm() -> ChatGoogleGenerativeAI:
+    """Return a shared LLM instance to avoid re-allocating on every call."""
+    return ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        google_api_key=settings.google_api_key,
+        temperature=0,
+    )
 
 
 async def search_google_linkedin(topic: str, limit: int = 10) -> SourceResult:
@@ -23,11 +34,7 @@ async def search_google_linkedin(topic: str, limit: int = 10) -> SourceResult:
         )
 
     try:
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            google_api_key=settings.google_api_key,
-            temperature=0,
-        )
+        llm = _get_linkedin_llm()
 
         prompt = (
             f"Search Google for: {topic} site:linkedin.com\n\n"

@@ -23,10 +23,15 @@ CURATED_FEEDS: dict[str, str] = {
 
 async def search_rss(topic: str, limit: int = 10) -> SourceResult:
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    _sem = asyncio.Semaphore(3)
+
+    async def _fetch_limited(client, name, url):
+        async with _sem:
+            return await fetch_feed(client, name, url)
 
     try:
         async with httpx.AsyncClient(timeout=settings.http_timeout) as client:
-            tasks = [fetch_feed(client, name, url) for name, url in CURATED_FEEDS.items()]
+            tasks = [_fetch_limited(client, name, url) for name, url in CURATED_FEEDS.items()]
             raw_feeds = await asyncio.gather(*tasks)
 
         items: list[TrendItem] = []

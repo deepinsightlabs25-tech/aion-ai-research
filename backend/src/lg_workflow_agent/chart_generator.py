@@ -51,7 +51,7 @@ plt.rcParams.update(
         "legend.facecolor": "#1a1d29",
         "legend.edgecolor": "#2d3148",
         "font.size": 11,
-        "figure.dpi": 150,
+        "figure.dpi": 96,
     }
 )
 
@@ -64,7 +64,9 @@ def _fig_to_base64(fig: plt.Figure) -> str:
     fig.savefig(buf, format="png", bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
     buf.seek(0)
-    return base64.b64encode(buf.read()).decode()
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    buf.close()
+    return b64
 
 
 def _make_bar_chart(spec: dict) -> str:

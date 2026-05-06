@@ -77,6 +77,11 @@ async def _get_recent_episodes(
 
 async def search_podcasts(topic: str, limit: int = 10) -> SourceResult:
     cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+    _sem = asyncio.Semaphore(3)
+
+    async def _fetch_limited(client, show, topic, cutoff):
+        async with _sem:
+            return await _get_recent_episodes(client, show, topic, cutoff)
 
     try:
         async with httpx.AsyncClient(
@@ -87,7 +92,7 @@ async def search_podcasts(topic: str, limit: int = 10) -> SourceResult:
                 return SourceResult(results=[], source="podcasts", query=topic)
 
             episode_lists = await asyncio.gather(
-                *[_get_recent_episodes(client, show, topic, cutoff) for show in shows],
+                *[_fetch_limited(client, show, topic, cutoff) for show in shows],
                 return_exceptions=True,
             )
 

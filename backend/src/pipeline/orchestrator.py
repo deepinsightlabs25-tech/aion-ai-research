@@ -1,11 +1,16 @@
 import uuid
 import logging
+import time
+from collections import OrderedDict
 from typing import Dict, List, Any, Optional
 
 from src.db.database import VectorDBContext
 from src.lg_workflow_agent import WorkflowAgent
 
 logger = logging.getLogger(__name__)
+
+_MAX_TASKS = 50
+_TASK_TTL_SECONDS = 1800  # 30 minutes
 
 
 class ResearchPipeline:
@@ -28,11 +33,24 @@ class ResearchPipeline:
     ):
         self.db = db or VectorDBContext()
         self.agent = agent or WorkflowAgent(db=self.db)
-        self._tasks: Dict[str, Dict[str, Any]] = {}
+        self._tasks: OrderedDict[str, Dict[str, Any]] = OrderedDict()
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    def _evict_stale_tasks(self) -> None:
+        """Remove expired tasks and enforce max capacity."""
+        now = time.time()
+        stale_keys = [
+            k for k, v in self._tasks.items()
+            if now - v.get("_created_at", 0) > _TASK_TTL_SECONDS
+            and v.get("status") in ("completed", "failed")
+        ]
+        for k in stale_keys:
+            del self._tasks[k]
+        while len(self._tasks) > _MAX_TASKS:
+            self._tasks.popitem(last=False)
 
     def initialize(self) -> None:
         """Prepare all subsystems — called once at service startup.
@@ -52,6 +70,8 @@ class ResearchPipeline:
         Returns:
             dict with keys ``status``, and optionally ``report`` or ``task_id``.
         """
+        self._evict_stale_tasks()
+
         # Step 1 — cache lookup
         cached_report = self.db.search_query(query)
         if cached_report:
@@ -59,7 +79,12 @@ class ResearchPipeline:
 
         # Step 2 — cache miss → create a pending task
         task_id = str(uuid.uuid4())
-        self._tasks[task_id] = {"status": "pending", "report": None, "error": None}
+        self._tasks[task_id] = {
+            "status": "pending",
+            "report": None,
+            "error": None,
+            "_created_at": time.time(),
+        }
         return {"status": "processing", "task_id": task_id}
 
     def _init_task(
@@ -71,6 +96,7 @@ class ResearchPipeline:
             "report": None,
             "error": None,
             "steps": [],
+            "_created_at": time.time(),
         }
         self._tasks[task_id] = record
         return record
@@ -123,15 +149,17 @@ class ResearchPipeline:
             async for update in self.agent.astream(query):
                 step_record = {
                     "step": update["step"],
-                    "content": update["content"],
-                    "metadata": update.get("data", {}),
+                    "content": update["content"][:500] if update["content"] else "",
                 }
                 task["steps"].append(step_record)
+                # Cap steps to prevent unbounded growth
+                if len(task["steps"]) > 30:
+                    task["steps"] = task["steps"][-20:]
                 logger.debug(
                     "Task %s — step %s: %s",
                     task_id,
                     update["step"],
-                    update["content"][:120],
+                    update["content"][:120] if update["content"] else "",
                 )
                 # Track last non-empty content so we can surface the final report
                 if update["content"]:

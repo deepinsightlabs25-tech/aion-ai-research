@@ -7,8 +7,6 @@ by the Validator node.
 
 from __future__ import annotations
 
-import asyncio
-import concurrent.futures
 import re
 from typing import Iterable
 from urllib.parse import urlparse
@@ -45,34 +43,13 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Async helper — runs an async source function from a sync LangChain tool.
-# FastAPI already owns the event loop, so we run in a thread with its own loop.
-# ---------------------------------------------------------------------------
-
-_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=6)
-
-
-def _run_async(coro):
-    """Run an async coroutine from sync context, safe inside an existing event loop."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        future = _EXECUTOR.submit(asyncio.run, coro)
-        return future.result(timeout=45)
-    else:
-        return asyncio.run(coro)
-
-
-# ---------------------------------------------------------------------------
-# Individual source tools (Option B)
+# Individual source tools — native async (no thread pool needed).
+# LangChain @tool supports async def directly; runs on the caller's loop.
 # ---------------------------------------------------------------------------
 
 
 @tool
-def fetch_hackernews(topic: str, limit: int = 10, period: str = "week") -> str:
+async def fetch_hackernews(topic: str, limit: int = 10, period: str = "week") -> str:
     """Search Hacker News for trending stories about a topic, sorted by points.
 
     Args:
@@ -80,48 +57,48 @@ def fetch_hackernews(topic: str, limit: int = 10, period: str = "week") -> str:
         limit: Maximum number of results to return (default: 10)
         period: Time window — "week", "month", or "quarter" (default: "week")
     """
-    result = _run_async(search_hackernews(topic, limit, period))
-    return result.model_dump_json(indent=2)
+    result = await search_hackernews(topic, limit, period)
+    return result.model_dump_json()
 
 
 @tool
-def fetch_youtube(topic: str, limit: int = 10) -> str:
+async def fetch_youtube(topic: str, limit: int = 10) -> str:
     """Search YouTube for trending videos about a topic from the last 7 days.
 
     Args:
         topic: The topic to search for
         limit: Maximum number of results to return (default: 10)
     """
-    result = _run_async(search_youtube(topic, limit))
-    return result.model_dump_json(indent=2)
+    result = await search_youtube(topic, limit)
+    return result.model_dump_json()
 
 
 @tool
-def fetch_github(topic: str, limit: int = 10) -> str:
+async def fetch_github(topic: str, limit: int = 10) -> str:
     """Search GitHub for trending repositories about a topic, sorted by stars/day growth.
 
     Args:
         topic: The topic to search for
         limit: Maximum number of results to return (default: 10)
     """
-    result = _run_async(search_github(topic, limit))
-    return result.model_dump_json(indent=2)
+    result = await search_github(topic, limit)
+    return result.model_dump_json()
 
 
 @tool
-def fetch_linkedin(topic: str, limit: int = 10) -> str:
+async def fetch_linkedin(topic: str, limit: int = 10) -> str:
     """Search for trending LinkedIn posts and articles about a topic via Google Search.
 
     Args:
         topic: The topic to search for
         limit: Maximum number of results to return (default: 10)
     """
-    result = _run_async(search_google_linkedin(topic, limit))
-    return result.model_dump_json(indent=2)
+    result = await search_google_linkedin(topic, limit)
+    return result.model_dump_json()
 
 
 @tool
-def fetch_reddit(topic: str, limit: int = 10, period: str = "week") -> str:
+async def fetch_reddit(topic: str, limit: int = 10, period: str = "week") -> str:
     """Search Reddit for trending discussions about a topic, sorted by engagement.
 
     Args:
@@ -129,48 +106,48 @@ def fetch_reddit(topic: str, limit: int = 10, period: str = "week") -> str:
         limit: Maximum number of results to return (default: 10)
         period: Time window — "week", "month", or "quarter" (default: "week")
     """
-    result = _run_async(search_reddit(topic, limit, period))
-    return result.model_dump_json(indent=2)
+    result = await search_reddit(topic, limit, period)
+    return result.model_dump_json()
 
 
 @tool
-def fetch_rss(topic: str, limit: int = 10) -> str:
+async def fetch_rss(topic: str, limit: int = 10) -> str:
     """Search curated industry publications (TechCrunch, HubSpot, SaaStr, The Verge, etc.) for articles about a topic.
 
     Args:
         topic: The topic to search for
         limit: Maximum number of results to return (default: 10)
     """
-    result = _run_async(search_rss(topic, limit))
-    return result.model_dump_json(indent=2)
+    result = await search_rss(topic, limit)
+    return result.model_dump_json()
 
 
 @tool
-def fetch_google_news(topic: str, limit: int = 10) -> str:
+async def fetch_google_news(topic: str, limit: int = 10) -> str:
     """Search Google News for trending articles about a topic from thousands of publications.
 
     Args:
         topic: The topic to search for
         limit: Maximum number of results to return (default: 10)
     """
-    result = _run_async(search_google_news(topic, limit))
-    return result.model_dump_json(indent=2)
+    result = await search_google_news(topic, limit)
+    return result.model_dump_json()
 
 
 @tool
-def fetch_podcasts(topic: str, limit: int = 10) -> str:
+async def fetch_podcasts(topic: str, limit: int = 10) -> str:
     """Search for trending podcast episodes about a topic from iTunes/Apple Podcasts.
 
     Args:
         topic: The topic to search for
         limit: Maximum number of results to return (default: 10)
     """
-    result = _run_async(search_podcasts(topic, limit))
-    return result.model_dump_json(indent=2)
+    result = await search_podcasts(topic, limit)
+    return result.model_dump_json()
 
 
 @tool
-def fetch_arxiv(topic: str, limit: int = 10) -> str:
+async def fetch_arxiv(topic: str, limit: int = 10) -> str:
     """Search arXiv for recent academic papers about a topic (last 7-30 days).
 
     Useful for citing scholarly work and understanding the research landscape.
@@ -179,8 +156,8 @@ def fetch_arxiv(topic: str, limit: int = 10) -> str:
         topic: The topic to search for (e.g. "large language models", "reinforcement learning")
         limit: Maximum number of results to return (default: 10)
     """
-    result = _run_async(search_arxiv(topic, limit))
-    return result.model_dump_json(indent=2)
+    result = await search_arxiv(topic, limit)
+    return result.model_dump_json()
 
 
 # ---------------------------------------------------------------------------
@@ -236,8 +213,12 @@ def validate_url(url: str, timeout: float = 6.0) -> bool:
             return False
         resp = requests.head(url, allow_redirects=True, timeout=timeout)
         if resp.status_code in {405, 403}:
-            resp = requests.get(url, allow_redirects=True, timeout=timeout, stream=True)
-        return 200 <= resp.status_code < 400
+            resp.close()
+            with requests.get(url, allow_redirects=True, timeout=timeout, stream=True) as r:
+                return 200 <= r.status_code < 400
+        status_ok = 200 <= resp.status_code < 400
+        resp.close()
+        return status_ok
     except Exception:
         return False
 
