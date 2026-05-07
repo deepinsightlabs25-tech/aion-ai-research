@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,12 @@ from src.api.models import (
 )
 from src.pipeline import ResearchPipeline
 from src.db.postgres import db
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-5s | %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 DEFAULT_CORS_ORIGINS = [
     "https://ai-report-gen.onrender.com",

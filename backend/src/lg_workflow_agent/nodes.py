@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+import logging
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -27,6 +29,8 @@ from .chart_generator import generate_charts_for_report
 from .state import WorkflowState
 from .sub_agents import build_role_runners
 from .tools import extract_urls, validate_urls
+
+logger = logging.getLogger(__name__)
 
 # Map of role -> sub-agent system prompt.
 ROLE_PROMPTS: dict[str, str] = {
@@ -140,6 +144,7 @@ def create_node_classifier(llm, db):
     """Classify the user query into a research mode."""
 
     def node_classifier(state: WorkflowState):
+        t0 = time.time()
         prompt = CLASSIFIER_PROMPT.format(query=state["query"])
         response = llm.invoke(prompt)
         parsed = _safe_json_load(getattr(response, "content", "") or "")
@@ -153,6 +158,7 @@ def create_node_classifier(llm, db):
             "classification_rationale": parsed.get("rationale", ""),
         }
         _persist(db, state.get("task_id", ""), "classify", out)
+        logger.info(f"[classifier] type={qtype} | {time.time() - t0:.1f}s")
         return out
 
     return node_classifier
@@ -162,6 +168,7 @@ def create_node_task_generator(llm, db):
     """Decompose the query into role-tagged sub-tasks."""
 
     def node_task_generator(state: WorkflowState):
+        t0 = time.time()
         qtype = state.get("query_type", "summary")
         roles = ROLES_BY_TYPE[qtype]
         prompt = TASK_GENERATOR_PROMPT.format(
@@ -211,6 +218,7 @@ def create_node_task_generator(llm, db):
         _persist(db, state.get("task_id", ""), "task_generation",
                  {"subtasks": subtasks})
 
+        logger.info(f"[task_generator] {len(subtasks)} subtasks for {len(roles)} roles | {time.time() - t0:.1f}s")
         return {"subtasks": subtasks, "worker_payloads": payloads}
 
     return node_task_generator
@@ -252,6 +260,7 @@ def create_node_aggregator(llm, db):
     """Consolidate sub-agent outputs into a structured aggregated object."""
 
     def node_aggregator(state: WorkflowState):
+        t0 = time.time()
         outputs = state.get("worker_outputs", [])
         rendered = "\n\n".join(
             f"### {o.get('role', '?')} :: {o.get('subtask_id', '?')}\n"
@@ -280,6 +289,7 @@ def create_node_aggregator(llm, db):
             }
 
         _persist(db, state.get("task_id", ""), "aggregation", parsed)
+        logger.info(f"[aggregator] {len(outputs)} outputs → {len(parsed.get('sections', []))} sections | {time.time() - t0:.1f}s")
         return {"aggregated": parsed}
 
     return node_aggregator
@@ -289,6 +299,7 @@ def create_node_writer(llm, db):
     """Produce the final markdown report from the aggregated structure."""
 
     def node_writer(state: WorkflowState):
+        t0 = time.time()
         aggregated = state.get("aggregated", {})
         invalid_refs = state.get("invalid_references", [])
         rewrite_note = ""
@@ -309,6 +320,7 @@ def create_node_writer(llm, db):
         draft = _sanitize_report(draft)
 
         _persist(db, state.get("task_id", ""), "draft", draft)
+        logger.info(f"[writer] {len(draft)} chars (rewrite #{state.get('rewrite_iterations', 0)}) | {time.time() - t0:.1f}s")
         # Reset invalid refs after applying them in a rewrite pass.
         return {"draft_report": draft, "invalid_references": []}
 
@@ -377,6 +389,7 @@ def create_node_validator(llm, db):
     """
 
     def node_validator(state: WorkflowState):
+        t0 = time.time()
         draft = state.get("draft_report", "")
         aggregated = state.get("aggregated", {}) or {}
         query = state.get("query", "")
@@ -397,6 +410,7 @@ def create_node_validator(llm, db):
 
         if not references:
             _persist(db, task_id, "validation", {"status": "VALID", "checked": 0})
+            logger.info(f"[validator] VALID (no refs) | {time.time() - t0:.1f}s")
             return {
                 "final_report": draft,
                 "validation_feedback": "VALID (no references)",
@@ -450,6 +464,7 @@ def create_node_validator(llm, db):
                 invalid.append(u)
 
         # ---- Decision -----------------------------------------------------------
+        elapsed = time.time() - t0
         if not invalid:
             _persist(db, task_id, "validation", {
                 "status": "VALID",
@@ -457,6 +472,7 @@ def create_node_validator(llm, db):
                 "verdicts": verdict_log,
                 "llm_error": llm_error,
             })
+            logger.info(f"[validator] VALID — checked {len(references)} refs, {len(broken)} broken | {elapsed:.1f}s")
             return {
                 "final_report": draft,
                 "validation_feedback": "VALID" + (
@@ -475,6 +491,7 @@ def create_node_validator(llm, db):
                 "irrelevant": irrelevant,
                 "verdicts": verdict_log,
             })
+            logger.info(f"[validator] FORCED_FINISH after {iterations} rewrites — {len(broken)} broken, {len(irrelevant)} irrelevant | {elapsed:.1f}s")
             return {
                 "final_report": cleaned,
                 "validation_feedback": f"FORCED_FINISH after {iterations} rewrites",
@@ -487,6 +504,7 @@ def create_node_validator(llm, db):
             "irrelevant": irrelevant,
             "verdicts": verdict_log,
         })
+        logger.info(f"[validator] INVALID — {len(broken)} broken, {len(irrelevant)} irrelevant → rewrite #{iterations + 1} | {elapsed:.1f}s")
         return {
             "validation_feedback": (
                 f"INVALID_REFS: {len(broken)} broken, {len(irrelevant)} irrelevant"
@@ -515,6 +533,7 @@ def create_node_report_finalizer(llm, db):
     """
 
     def node_report_finalizer(state: WorkflowState):
+        t0 = time.time()
         report = state.get("final_report") or state.get("draft_report") or ""
         aggregated = state.get("aggregated", {})
 
@@ -563,6 +582,8 @@ def create_node_report_finalizer(llm, db):
             "charts_requested": len(chart_specs),
             "charts_rendered": len(rendered_images),
         })
+
+        logger.info(f"[report_finalizer] {len(chart_specs)} charts requested, {len(rendered_images)} rendered, {len(final_visual_report)} chars | {time.time() - t0:.1f}s")
 
         return {
             "final_report": final_visual_report,

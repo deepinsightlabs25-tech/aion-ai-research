@@ -110,6 +110,9 @@ class ResearchPipeline:
         Designed to be scheduled with ``asyncio.create_task()`` or as a
         FastAPI background task on an ``async def`` route.
         """
+        import time
+        pipeline_start = time.time()
+
         task = self._tasks.get(task_id)
         if task is None:
             logger.error("run_task_streaming called for unknown task_id %s", task_id)
@@ -141,7 +144,8 @@ class ResearchPipeline:
             # Ensure we have captured the final report content
             if last_content:
                 self.db.save_report(query, last_content)
-                logger.info(f"Task {task_id}: Report saved to Qdrant DB. Query: '{query[:50]}...'")
+                elapsed = time.time() - pipeline_start
+                logger.info(f"Task {task_id}: Report saved ({len(last_content)} chars) | total pipeline time: {elapsed:.1f}s")
                 task["status"] = "completed"
                 task["report"] = last_content
             else:
@@ -149,7 +153,8 @@ class ResearchPipeline:
                 final_report = self.agent.invoke(query)
                 if final_report and final_report != " No Report Generated":
                     self.db.save_report(query, final_report)
-                    logger.info(f"Task {task_id}: Final report saved to Qdrant DB. Query: '{query[:50]}...'")
+                    elapsed = time.time() - pipeline_start
+                    logger.info(f"Task {task_id}: Final report saved (fallback invoke, {len(final_report)} chars) | total: {elapsed:.1f}s")
                     task["status"] = "completed"
                     task["report"] = final_report
                 else:
@@ -157,9 +162,10 @@ class ResearchPipeline:
                     task["error"] = "No report content generated"
                     
         except Exception as exc:
+            elapsed = time.time() - pipeline_start
             task["status"] = "failed"
             task["error"] = str(exc)
-            logger.exception("Task %s failed during streaming", task_id)
+            logger.exception("Task %s failed after %.1fs", task_id, elapsed)
 
     # ------------------------------------------------------------------
     # Task status
