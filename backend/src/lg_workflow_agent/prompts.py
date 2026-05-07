@@ -24,7 +24,7 @@ The query has been classified as: {query_type}.
 Available specialized sub-agent roles for query type "{query_type}":
 {roles}
 
-Decompose the query into 2-4 atomic, parallelizable sub-tasks. Each sub-task
+Decompose the query into 4-8 atomic, parallelizable sub-tasks. Each sub-task
 must be assigned to ONE of the available roles. Multiple sub-tasks may share a role.
 
 Role guidance:
@@ -122,7 +122,8 @@ AGGREGATOR_PROMPT = """You are the Data Aggregation node.
 Consolidate the sub-agent outputs below into a single STRUCTURED JSON object.
 
 Rules:
-- Group similar content into thematic sections.
+- Preserve ALL details, statistics, and insights from the sub-agent outputs. Do NOT summarize or condense important information.
+- Group similar content into thematic sections, retaining comprehensive detail.
 - Deduplicate references; assign each unique URL ONE citation number.
 - Renumber inline [n] citations to match the deduplicated reference list.
 - Preserve key statistics if present.
@@ -144,7 +145,7 @@ Return STRICT JSON only:
     "num_sources": 0
   }},
   "sections": [
-    {{"title": "...", "content": "markdown text with [n] citations"}}
+    {{"title": "...", "content": "comprehensive markdown text with all original details and [n] citations"}}
   ],
   "references": [
     {{"id": 1, "title": "...", "url": "..."}}
@@ -159,12 +160,14 @@ Sub-agent outputs:
 """
 
 WRITER_PROMPT = """You are the Final Report Writer node.
-Synthesize the aggregated structured data into a polished Markdown document.
+Synthesize the aggregated structured data into a HIGHLY DETAILED, comprehensive, and polished Markdown document.
 
 Requirements:
 - Start with a `# <Title>` derived from the query.
 - Use `## Section` headings exactly matching the aggregated sections (you may
   reorder for narrative flow but do not invent new content).
+- Produce long, dense paragraphs that preserve ALL the details, data points, statistics, and references provided.
+- Do NOT summarize or shorten the information.
 - Preserve inline [n] citations exactly as given.
 - End with a `## References` section listing each reference as:
   `[n] Title - URL`

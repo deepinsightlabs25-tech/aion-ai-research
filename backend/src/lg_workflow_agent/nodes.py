@@ -47,7 +47,7 @@ ROLES_BY_TYPE: dict[str, list[str]] = {
     "summary": ["web_research", "latest_news_collection"],
 }
 
-MAX_REWRITES = 2
+MAX_REWRITES = 1
 
 
 # Phrases that indicate the LLM is leaking tool/process meta-commentary.
