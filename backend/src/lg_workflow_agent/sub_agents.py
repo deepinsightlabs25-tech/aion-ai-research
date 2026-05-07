@@ -108,15 +108,15 @@ def build_sub_agents(llm, tools: list | None = None) -> dict[str, Any]:
 
 
 def _make_runner(role: str, agent: Any) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """Build a lightweight runner that invokes a *pre-built* agent."""
+    """Build a lightweight async runner that invokes a *pre-built* agent."""
 
-    def runner(payload: dict[str, Any]) -> dict[str, Any]:
+    async def runner(payload: dict[str, Any]) -> dict[str, Any]:
         user_msg = (
             f"Query: {payload.get('query', '')}\n"
             f"Sub-task: {payload.get('task', '')}"
         )
         try:
-            response = agent.invoke({"messages": [{"role": "user", "content": user_msg}]})
+            response = await agent.ainvoke({"messages": [{"role": "user", "content": user_msg}]})
             last = response["messages"][-1].content
             if isinstance(last, list):
                 # Gemini-style multi-part content.
