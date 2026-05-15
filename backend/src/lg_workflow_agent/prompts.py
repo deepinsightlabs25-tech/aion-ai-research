@@ -364,46 +364,85 @@ Return STRICT JSON only, no prose, no fences:
 
 REPORT_FINALIZER_PROMPT = """You are the Visual Report Finalizer.
 You receive a validated text-only Markdown report and the original aggregated
-research data.  Your job is to produce TWO outputs:
+research data. Your job is to produce TWO outputs:
 
 1. **chart_specs** — a JSON list of chart specifications that will be rendered
-   as professional graphs/images and embedded into the report.
+   as professional visualizations and embedded into the report.
 2. **enhanced_report** — the same report enhanced with placement markers where
    each chart should be inserted: ``{{{{CHART:<index>}}}}`` (0-indexed).
 
-Analyze the report and aggregated data for:
-- Numerical comparisons → bar chart or horizontal bar chart
-- Trends over time → line chart
-- Market share / distribution → pie chart
-- Feature comparisons → comparison_table
-- Key highlight metrics → stat_card
+ANALYZE THE REPORT FOR RELEVANT DATA VISUALIZATIONS:
 
-SUPPORTED chart types and their required fields:
-  bar / horizontal_bar: {{"chart_type": "bar"|"horizontal_bar", "title": "…",
-                          "labels": ["A","B",…], "values": [10,20,…],
-                          "xlabel": "…", "ylabel": "…", "caption": "…"}}
-  line:                 {{"chart_type": "line", "title": "…",
-                          "series": [{{"name":"…","x":[…],"y":[…]}}],
-                          "xlabel": "…", "ylabel": "…", "caption": "…"}}
-  pie:                  {{"chart_type": "pie", "title": "…",
-                          "labels": ["A","B",…], "values": [40,30,…],
-                          "caption": "…"}}
-  comparison_table:     {{"chart_type": "comparison_table", "title": "…",
-                          "headers": ["Feature","A","B"],
-                          "rows": [["Speed","Fast","Slow"]],
-                          "caption": "…"}}
-  stat_card:            {{"chart_type": "stat_card", "title": "…",
-                          "metrics": [{{"label":"Users","value":"2.5M","unit":"+"}}],
-                          "caption": "…"}}
+**ALWAYS USE** (when data is present):
+- Numerical comparisons (performance, metrics, rankings) → bar chart or horizontal_bar
+- Time series or trends → line or area chart
+- Distribution or market share → pie chart
+- Feature/capability comparison → matrix or comparison_table
+- Process workflows or systems → flowchart or architecture
+- Mathematical relationships or formulas → formula (with LaTeX)
+- Correlation or intensity patterns → heatmap
+- Key metrics highlights → stat_card
 
-RULES:
-- Generate 2–6 charts.  Prefer variety of chart types.
-- Use REAL data from the report and aggregated research.  Never invent numbers.
-  If the report contains no quantitative data for a chart type, skip that type.
+**NEVER GENERATE** (exclude these):
+- Charts about metadata (number of sources, count of references, etc.)
+- Charts about methodology (how many tools were used, etc.)
+- Redundant charts (don't repeat the same data twice)
+- Empty or trivial charts (0 values, single data point)
+
+SUPPORTED chart types and required fields:
+  bar:              {{"chart_type": "bar", "title": "...", "labels": ["A","B"], 
+                     "values": [10,20], "xlabel": "...", "ylabel": "...", "caption": "..."}}
+  horizontal_bar:   {{"chart_type": "horizontal_bar", "title": "...", "labels": ["A","B"],
+                     "values": [10,20], "xlabel": "...", "caption": "..."}}
+  line:             {{"chart_type": "line", "title": "...",
+                     "series": [{{"name":"S1","x":[1,2,3],"y":[10,20,15]}}],
+                     "xlabel": "...", "ylabel": "...", "caption": "..."}}
+  area:             {{"chart_type": "area", "title": "...",
+                     "series": [{{"name":"S1","x":[...],"y":[...]}}],
+                     "xlabel": "...", "ylabel": "...", "caption": "..."}}
+  pie:              {{"chart_type": "pie", "title": "...", "labels": ["A","B"],
+                     "values": [40,60], "caption": "..."}}
+  comparison_table: {{"chart_type": "comparison_table", "title": "...",
+                     "headers": ["Feature","Option A","Option B"],
+                     "rows": [["Speed","Fast","Slow"]], "caption": "..."}}
+  stat_card:        {{"chart_type": "stat_card", "title": "Key Metrics",
+                     "metrics": [{{"label":"Users","value":"2.5M","unit":""}}],
+                     "caption": "..."}}
+  flowchart:        {{"chart_type": "flowchart", "title": "...",
+                     "steps": [{{"text":"Step 1","color":"#FF6B6B"}},
+                              {{"text":"Step 2","color":"#00D4AA"}}],
+                     "caption": "..."}}
+  architecture:     {{"chart_type": "architecture", "title": "System Components",
+                     "components": [{{"name":"Frontend","type":"UI"}},
+                                   {{"name":"API","type":"Service"}}],
+                     "caption": "..."}}
+  heatmap:          {{"chart_type": "heatmap", "title": "...",
+                     "data": [[1,2],[3,4]], "labels_x": ["A","B"],
+                     "labels_y": ["X","Y"], "colormap": "viridis", "caption": "..."}}
+  formula:          {{"chart_type": "formula", "title": "Mathematical Model",
+                     "formula": "E = mc^2", "description": "Einstein's mass-energy equivalence",
+                     "caption": "..."}}
+  matrix:           {{"chart_type": "matrix", "title": "Capability Matrix",
+                     "categories": ["Speed","Cost","Accuracy"],
+                     "items": [{{"name":"Option A","scores":[90,70,85]}}],
+                     "caption": "..."}}
+
+GUIDELINES:
+- Generate 3–8 visualizations. Prioritize variety: mix chart types (bar, line, flowchart, formula).
+- Use REAL data from the report and aggregated research. Never invent numbers.
+- For process/workflow topics → include flowchart or architecture diagram.
+- For technical/mathematical content → include formula if applicable.
+- For system comparisons → use matrix or architecture diagram.
 - Place each chart immediately AFTER the paragraph/section it illustrates.
-- Keep the existing report text intact — only add {{{{CHART:<index>}}}} markers
-  and optionally add short 1-line introductory sentences before the chart.
-- The enhanced_report must be valid Markdown.
+- Keep report text intact; only add {{{{CHART:<index>}}}} markers.
+- Ensure enhanced_report is valid Markdown.
+
+IMPORTANT RULES:
+1. Do NOT create charts for metadata (e.g., "We found 15 sources" → NO chart).
+2. Do NOT create redundant visualizations of the same data.
+3. Prioritize substance: visualize the key findings, not the process.
+4. Each chart must add unique insight to the report.
+5. Use descriptive captions that explain the insight.
 
 Validated report:
 {report}
@@ -413,7 +452,7 @@ Aggregated data (JSON):
 
 Return STRICT JSON only (no prose, no fences):
 {{
-  "chart_specs": [ … ],
+  "chart_specs": [ ... ],
   "enhanced_report": "full markdown string with {{{{CHART:n}}}} markers"
 }}
 """
