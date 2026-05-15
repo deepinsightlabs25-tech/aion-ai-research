@@ -1,8 +1,11 @@
 import asyncio
+import base64
+import io
 import logging
 import os
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from src.api.auth import get_current_user
 from src.api.models import (
@@ -24,6 +27,7 @@ logging.basicConfig(
 
 DEFAULT_CORS_ORIGINS = [
     "https://ai-report-gen.onrender.com",
+    "http://localhost:5173",
     "http://localhost:5175",
     "https://deepinsightlabs25-tech.github.io",
     "https://aion-ai-research.onrender.com"
@@ -104,6 +108,41 @@ def get_status(task_id: str, user: dict = Depends(get_current_user)):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return TaskStatusResponse(**task)
+
+
+@app.get("/paper/{task_id}")
+def get_paper(task_id: str, user: dict = Depends(get_current_user)):
+    """Retrieve the generated research paper for a completed task.
+
+    Returns the compiled PDF as a downloadable file. If PDF compilation
+    failed, returns the LaTeX source and metadata as JSON instead.
+    """
+    task = pipeline.get_task_status(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    paper = task.get("research_paper")
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail="No research paper available for this task (only generated for deep_research queries)",
+        )
+
+    pdf_base64 = paper.get("pdf_base64")
+    if pdf_base64:
+        pdf_bytes = base64.b64decode(pdf_base64)
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=research_paper_{task_id[:8]}.pdf"
+            },
+        )
+
+    return {
+        "status": "pdf_not_available",
+        "metadata": paper.get("metadata", {}),
+        "latex": paper.get("latex", ""),
+    }
 
 
 @app.get("/report")

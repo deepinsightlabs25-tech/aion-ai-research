@@ -23,6 +23,7 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "supabase==2.29.0",
     "matplotlib>=3.10.9",
+    "pytinytex>=0.5.0",
 ]
 
 [project.scripts]

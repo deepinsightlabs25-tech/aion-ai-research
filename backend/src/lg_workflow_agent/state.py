@@ -42,3 +42,8 @@ class WorkflowState(TypedDict, total=False):
     validation_feedback: str
     invalid_references: list[str]
     rewrite_iterations: int
+
+    # Research paper output (generated for deep_research queries)
+    research_paper_latex: str
+    research_paper_metadata: dict[str, Any]
+    research_paper_pdf_base64: str | None

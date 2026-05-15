@@ -50,12 +50,19 @@ class ResearchPipeline:
         """Check cache and return a cached report or a new task_id.
 
         Returns:
-            dict with keys ``status``, and optionally ``report`` or ``task_id``.
+            dict with keys ``status``, and optionally ``report``/``research_paper``
+            or ``task_id``.
         """
         # Step 1 — cache lookup
-        cached_report = self.db.search_query(query)
-        if cached_report:
-            return {"status": "found", "report": cached_report}
+        cached = self.db.search_query(query)
+        if cached:
+            result: Dict[str, Any] = {"status": "found", "report": cached["report"]}
+            if cached.get("paper_latex"):
+                result["research_paper"] = {
+                    "latex": cached["paper_latex"],
+                    "metadata": {},
+                }
+            return result
 
         # Step 2 — cache miss → create a pending task
         task_id = str(uuid.uuid4())
@@ -121,6 +128,7 @@ class ResearchPipeline:
         task["status"] = "processing"
         task["steps"] = []
         last_content = ""
+        research_paper_data: Optional[Dict[str, Any]] = None
 
         try:
             async for update in self.agent.astream(query):
@@ -139,15 +147,27 @@ class ResearchPipeline:
                 # Track last non-empty content so we can surface the final report
                 if update["content"]:
                     last_content = update["content"]
-                    
+
+                # Capture research paper output from the paper_writer node
+                step_data = update.get("data", {})
+                if step_data.get("research_paper_latex"):
+                    research_paper_data = {
+                        "latex": step_data["research_paper_latex"],
+                        "metadata": step_data.get("research_paper_metadata", {}),
+                        "pdf_base64": step_data.get("research_paper_pdf_base64"),
+                    }
 
             # Ensure we have captured the final report content
             if last_content:
-                self.db.save_report(query, last_content)
+                paper_latex = research_paper_data.get("latex") if research_paper_data else None
+                self.db.save_report(query, last_content, paper_latex=paper_latex)
                 elapsed = time.time() - pipeline_start
                 logger.info(f"Task {task_id}: Report saved ({len(last_content)} chars) | total pipeline time: {elapsed:.1f}s")
                 task["status"] = "completed"
                 task["report"] = last_content
+                if research_paper_data:
+                    task["research_paper"] = research_paper_data
+                    logger.info(f"Task {task_id}: Research paper saved to Qdrant ({len(paper_latex or '')} chars)")
             else:
                 # If no content from streaming, try to get the final report via invoke
                 final_report = self.agent.invoke(query)

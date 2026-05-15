@@ -1,5 +1,126 @@
 """Prompt templates for the lg_workflow_agent workflow."""
 
+# ---------------------- Research Paper Conversion Prompt ----------------------
+
+RESEARCH_PAPER_PROMPT = """You are an expert academic writer who converts research reports \
+into publishable conference papers following standard IEEE/ACM formatting conventions.
+
+Given the research report and aggregated data below, produce a COMPLETE academic research \
+paper in LaTeX format suitable for submission to a top-tier CS/AI conference.
+
+PAPER STRUCTURE (follow this order strictly):
+1. \\title{{...}}
+2. \\begin{{abstract}} — 150-250 words summarizing the problem, approach, key findings, and implications.
+3. \\section{{Introduction}} — Motivation, problem statement, contributions (as a numbered list).
+4. \\section{{Related Work}} — Organized survey of prior work with proper \\cite{{}} references.
+5. \\section{{Methodology}} / \\section{{Approach}} — Technical description of the methods, \
+   frameworks, or systems investigated. Include formulations, algorithms, or architectures \
+   where data supports it.
+6. \\section{{Results}} / \\section{{Evaluation}} — Present key findings. Use \\begin{{table}} \
+   for comparisons. Include quantitative metrics.
+7. \\section{{Discussion}} — Interpret results, compare with related work, discuss implications.
+8. \\section{{Limitations and Future Work}} — Honest assessment of gaps and next steps.
+9. \\section{{Conclusion}} — Concise summary of contributions and impact.
+10. \\begin{{thebibliography}} — All references in proper BibTeX-style entries.
+
+CRITICAL LaTeX FORMATTING RULES (violations will make the paper un-compilable):
+- NEVER use markdown syntax: no **bold**, no `backticks`, no # headings, no [text](url).
+- For bold text use \\textbf{{...}}, for italic use \\textit{{...}}, for code use \\texttt{{...}}.
+- ALWAYS escape dollar signs in running text: write \\$1.5 billion, NOT $1.5 billion.
+- ALWAYS escape these LaTeX special characters in text: \\$ \\% \\& \\# \\_ \\{{ \\}}
+- Use the \\documentclass{{article}} template with \\usepackage{{geometry}} for margins.
+- Set margins: \\usepackage[margin=1in]{{geometry}}
+- All citations must use \\cite{{key}} and match entries in thebibliography.
+- Convert inline [n] citations from the report into proper \\cite{{ref_n}} commands.
+- Tables must use \\begin{{table}}...\\end{{table}} with \\caption and \\label.
+- Include \\usepackage{{amsmath,booktabs,hyperref,url,geometry}} in preamble.
+- Author field should be "Research Team" with a placeholder institution.
+- Keep total length between 6-10 pages (IEEE two-column format).
+- Write in formal academic tone: third person, passive voice where appropriate.
+- Every claim must be supported by a citation or data from the report.
+- Transform bullet-point findings into flowing academic prose with proper transitions.
+
+FIGURE/IMAGE RULES:
+{image_manifest}
+- If images are available, embed them using \\begin{{figure}}...\\end{{figure}} with \
+  \\includegraphics[width=0.9\\columnwidth]{{FILENAME}} pointing to the EXACT filenames listed above.
+- Place each figure near the section it illustrates, with a meaningful \\caption and \\label.
+- If NO images are available, use \\begin{{table}} environments to present data visually instead.
+- NEVER invent filenames that are not listed above.
+
+REFERENCE QUALITY RULES:
+- For \\bibitem entries, use proper academic citation format:
+  Author(s), "Title," Journal/Conference, vol. X, no. Y, pp. Z, Year.
+- If the source is a news article or web page, format as:
+  Author/Org, ``Title,'' Publisher/Website, Date. [Online]. Available: \\url{{URL}}
+- CRITICAL: Use LaTeX double-backtick quotes for titles: ``Title'' (two backticks to open, two single-quotes to close).
+  NEVER use \\texttt{{}} for quoting titles. NEVER use }}\\texttt{{ or `\\texttt{{ patterns.
+- Prefer arXiv, DOI links, and official publication URLs over Google News redirect links.
+- If a reference URL is a Google News RSS redirect (contains news.google.com/rss/articles/), \
+  try to extract the actual article title and publisher, and cite it as a web reference \
+  without the redirect URL. Use the format: Author, ``Title,'' Publisher, Date.
+- Reddit links should be cited as: ``Title,'' Reddit r/subreddit, Date. [Online]. Available: \\url{{URL}}
+- Every \\bibitem must have a properly formatted entry — no empty or malformed references.
+
+QUALITY STANDARDS:
+- The paper MUST be directly compilable with pdflatex (no exotic packages, no missing files).
+- Cross-references: use \\label{{}} and \\ref{{}} for sections and tables.
+- When referencing figures in text, ALWAYS write "Figure~\\ref{{fig:label}}" (with capital F and tilde).
+- No placeholder text like "TODO" or "insert here" — write complete content.
+- No instructional comments like "%% Adjust this" — keep only meaningful comments.
+- Output EXACTLY ONE \\end{{document}} at the very end. No duplicate endings or trailing content.
+- If data is insufficient for a section, write what IS available with appropriate hedging \
+  language ("preliminary results suggest...", "based on available evidence...").
+
+Research report:
+{report}
+
+Aggregated research data (JSON):
+{aggregated}
+
+Return the COMPLETE LaTeX document starting with \\documentclass and ending with \\end{{document}}.
+Do NOT wrap in markdown code fences — return raw LaTeX only.
+"""
+
+PAPER_METADATA_PROMPT = """You are an academic metadata specialist.
+Given the research paper title and abstract below, generate structured metadata.
+
+Title: {title}
+Abstract: {abstract}
+
+Return STRICT JSON only:
+{{
+  "suggested_venues": ["<conference/journal 1>", "<conference/journal 2>", "<conference/journal 3>"],
+  "keywords": ["<keyword1>", "<keyword2>", "<keyword3>", "<keyword4>", "<keyword5>"],
+  "acm_categories": ["<CCS category 1>", "<CCS category 2>"],
+  "estimated_page_count": <int>,
+  "paper_type": "survey|empirical|systems|theoretical|position"
+}}
+"""
+
+LATEX_FIX_PROMPT = """You are a LaTeX debugging expert. The following LaTeX document failed \
+to compile with pdflatex. Fix ONLY the errors listed below. Do NOT change the content, \
+structure, or references — only fix the syntax/formatting issues that prevent compilation.
+
+COMPILATION ERRORS:
+{errors}
+
+COMMON FIXES:
+- Unescaped special characters: escape $ % & # _ {{ }} with a backslash
+- Mismatched braces: ensure every {{ has a matching }}
+- Mismatched environments: ensure every \\begin{{X}} has a matching \\end{{X}}
+- Bad \\texttt quotes: use ``text'' instead of `\\texttt{{text}}''
+- Missing packages: add \\usepackage{{...}} in the preamble
+- Undefined control sequences: check spelling of LaTeX commands
+- Math mode errors: ensure $ or \\[ are properly opened and closed
+
+Return the COMPLETE fixed LaTeX document from \\documentclass to \\end{{document}}.
+Do NOT wrap in markdown code fences — return raw LaTeX only.
+
+DOCUMENT TO FIX:
+{latex}
+"""
+
 CLASSIFIER_PROMPT = """You are the Query Classifier in a research content workflow.
 
 Classify the user's query into EXACTLY ONE of these categories:

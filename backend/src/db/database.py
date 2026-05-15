@@ -39,8 +39,11 @@ class VectorDBContext:
     def _get_embedding(self, text: str) -> list[float]:
         return self.embeddings.embed_query(text)
         
-    def search_query(self, query: str) -> Optional[str]:
-        """Search if a similar query has already been processed."""
+    def search_query(self, query: str) -> Optional[Dict[str, str]]:
+        """Search if a similar query has already been processed.
+
+        Returns a dict with 'report' and optionally 'paper_latex' keys, or None.
+        """
         try:
             vector = self._get_embedding(query)
             results = self.client.query_points(
@@ -54,27 +57,33 @@ class VectorDBContext:
             if results and len(results) > 0:
                 best_match = results[0]
                 if best_match.score >= SIMILARITY_THRESHOLD:
-                    return best_match.payload.get("report")
+                    hit: Dict[str, str] = {"report": best_match.payload.get("report", "")}
+                    if best_match.payload.get("paper_latex"):
+                        hit["paper_latex"] = best_match.payload["paper_latex"]
+                    return hit
         except Exception as e:
             print(f"Error searching query: {e}")
             
         return None
         
-    def save_report(self, query: str, report: str) -> None:
-        """Save a new original query and its generated report."""
+    def save_report(self, query: str, report: str, paper_latex: str | None = None) -> None:
+        """Save a new original query, its generated report, and optional LaTeX paper."""
         try:
             vector = self._get_embedding(query)
             point_id = str(uuid.uuid4())
+            payload: Dict[str, Any] = {
+                "query": query,
+                "report": report,
+            }
+            if paper_latex:
+                payload["paper_latex"] = paper_latex
             self.client.upsert(
                 collection_name=COLLECTION_NAME,
                 points=[
                     PointStruct(
                         id=point_id,
                         vector=vector,
-                        payload={
-                            "query": query,
-                            "report": report
-                        }
+                        payload=payload,
                     )
                 ]
             )

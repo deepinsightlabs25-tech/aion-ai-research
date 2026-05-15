@@ -9,6 +9,7 @@ from .nodes import (
     create_node_aggregator,
     create_node_classifier,
     create_node_cleanup,
+    create_node_paper_writer,
     create_node_report_finalizer,
     create_node_task_generator,
     create_node_validator,
@@ -54,6 +55,7 @@ class WorkflowGraphBuilder:
         wf.add_node("writer", create_node_writer(self.llm, self.db))
         wf.add_node("validator", create_node_validator(self.llm, self.db))
         wf.add_node("report_finalizer", create_node_report_finalizer(self.llm, self.db))
+        wf.add_node("paper_writer", create_node_paper_writer(self.llm, self.db))
         wf.add_node("cleanup", create_node_cleanup(self.db))
 
         # Linear front: START -> classify -> task_gen -> fan-out
@@ -80,7 +82,11 @@ class WorkflowGraphBuilder:
             create_validation_route(),
             {"valid": "report_finalizer", "rewrite": "writer"},
         )
-        wf.add_edge("report_finalizer", "cleanup")
+
+        # After report_finalizer, generate paper (runs for all types but only
+        # produces output for deep_research; the node itself short-circuits).
+        wf.add_edge("report_finalizer", "paper_writer")
+        wf.add_edge("paper_writer", "cleanup")
         wf.add_edge("cleanup", END)
 
         self._graph = wf.compile()
