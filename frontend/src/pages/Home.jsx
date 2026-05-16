@@ -100,6 +100,7 @@ const Home = ({ isAuthenticated, onRequireLogin }) => {
       setResearch({
         topic,
         content: data.content,
+        researchPaper: data.researchPaper ?? null,
         taskId: data.taskId ?? null,
         steps: data.steps ?? [],
       })
@@ -163,7 +164,7 @@ const Home = ({ isAuthenticated, onRequireLogin }) => {
           ref={resultRef}
           className="px-4 pb-24 flex flex-col items-center"
         >
-          <div className="w-full max-w-3xl mb-12 flex items-center gap-4">
+          <div className="w-full max-w-7xl mb-12 flex items-center gap-4">
             <div className="flex-1 h-px bg-ink-200" />
             <span className="text-ink-500 font-mono text-[11px] uppercase tracking-wider">
               {appState === STATE.LOADING ? '' : appState === STATE.RESULT ? 'Result' : 'Error'}
@@ -186,6 +187,7 @@ const Home = ({ isAuthenticated, onRequireLogin }) => {
           {appState === STATE.RESULT && research && (
             <ResearchResult
               content={research.content}
+              researchPaper={research.researchPaper}
               topic={research.topic}
               taskId={research.taskId}
               steps={research.steps}

@@ -99,6 +99,28 @@
   .research-prose hr {
     @apply border-ink-200 my-6;
   }
+
+  /* IEEE-style two-column LaTeX paper preview (HTML fallback when PDF unavailable) */
+  .research-paper-columns {
+    column-count: 2;
+    column-gap: 2rem;
+    column-rule: 1px solid rgba(148, 163, 184, 0.35);
+  }
+
+  .research-paper-columns section {
+    break-inside: avoid-column;
+  }
+
+  .research-paper-pdf iframe {
+    min-height: min(80vh, 1100px);
+  }
+
+  @media (max-width: 768px) {
+    .research-paper-columns {
+      column-count: 1;
+      column-rule: none;
+    }
+  }
   .research-prose a {
     @apply text-brand-600 underline underline-offset-2 hover:text-brand-700 transition-colors;
   }
