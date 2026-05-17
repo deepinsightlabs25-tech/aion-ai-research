@@ -49,7 +49,8 @@ flowchart TD
     VALIDATOR -->|"VALID / FORCED_FINISH"| RF["🖼️ Report Finalizer<br/><i>Generates charts/images</i>"]
     VALIDATOR -->|"INVALID_REFS<br/>(rewrite loop, max 2 iterations)"| WRITER
 
-    RF --> CLEANUP
+    RF --> PW["📄 Paper Writer<br/><i>LaTeX generation +<br/>PDF compilation</i>"]
+    PW --> CLEANUP
     CLEANUP --> FINISH
 ```
 
@@ -97,6 +98,7 @@ sequenceDiagram
     participant WR as Writer
     participant VA as Validator
     participant RF as Report Finalizer
+    participant PW as Paper Writer
     participant CU as Cleanup
     participant DB as Qdrant DB
 
@@ -131,16 +133,26 @@ sequenceDiagram
         alt All references valid
             VA->>RF: validated report + aggregated data
             RF->>RF: generate charts, render images, embed into report
-            RF->>CU: final_report
+            RF->>PW: final_report + report_images
+            alt query_type == deep_research
+                PW->>PW: Generate LaTeX via LLM
+                PW->>PW: Compile LaTeX → PDF (PyTinyTeX)
+                loop Fix Loop (max 2 retries)
+                    PW->>PW: If compile fails → feed errors to LLM → fix → retry
+                end
+                PW->>CU: research_paper_latex + pdf_base64
+            else Other query types
+                PW->>CU: skip (no paper generated)
+            end
         else Broken / irrelevant refs found
             VA->>WR: invalid_references[] → rewrite
             WR->>VA: revised draft_report
         end
     end
 
-    CU->>DB: save_report(query, final_report)
+    CU->>DB: save_report(query, final_report, paper_latex)
     CU->>DB: cleanup_task_data(task_id)
-    CU-->>U: final_report
+    CU-->>U: final_report + research_paper (if deep_research)
 ```
 
 ---
@@ -168,6 +180,9 @@ classDiagram
         +validation_feedback : str
         +invalid_references : list~str~
         +rewrite_iterations : int
+        +research_paper_latex : str
+        +research_paper_metadata : dict
+        +research_paper_pdf_base64 : str | None
     }
 
     note for WorkflowState "worker_outputs uses operator.add reducer; parallel Send() results are appended, not overwritten"
@@ -176,17 +191,18 @@ classDiagram
 | Field | Set By | Consumed By |
 |---|---|---|
 | `query`, `task_id`, `messages` | Initial input | All nodes |
-| `query_type`, `classification_rationale` | Classifier | Task Generator, Aggregator, Validator |
+| `query_type`, `classification_rationale` | Classifier | Task Generator, Aggregator, Validator, Paper Writer |
 | `subtasks`, `worker_payloads` | Task Generator | Assign Workers (fan-out) |
 | `worker_outputs` | Sub-agents (additive) | Aggregator |
-| `aggregated` | Aggregator | Writer, Validator |
+| `aggregated` | Aggregator | Writer, Validator, Paper Writer |
 | `draft_report` | Writer | Validator |
-| `final_report` | Validator / Cleanup | API response |
+| `final_report` | Validator / Cleanup | API response, Paper Writer |
 | `chart_specs` | Report Finalizer | Report Finalizer / Cleanup |
 | `report_images` | Report Finalizer | Cleanup / persisted report payload |
 | `invalid_references`, `rewrite_iterations` | Validator | Writer (rewrite loop) |
-
-> Note: The new `Report Finalizer` node enriches validated drafts with auto-generated charts and embedded image assets before cleanup.
+| `research_paper_latex` | Paper Writer | Cleanup (saves to Qdrant), API |
+| `research_paper_metadata` | Paper Writer | API response |
+| `research_paper_pdf_base64` | Paper Writer | API `/paper/{task_id}` endpoint |
 
 ---
 
@@ -318,11 +334,13 @@ src/lg_workflow_agent/
 ├── __init__.py          # Public API exports: WorkflowAgent, WorkflowGraphBuilder, WorkflowState
 ├── agent.py             # WorkflowAgent — top-level entry point (build, invoke, astream)
 ├── graph.py             # WorkflowGraphBuilder — LangGraph StateGraph construction
-├── nodes.py             # Node factories (classifier, task_gen, aggregator, writer, validator, cleanup)
-├── prompts.py           # All LLM prompt templates (classifier, task_gen, sub-agents, aggregator, writer, validator)
+├── nodes.py             # Node factories (classifier, task_gen, aggregator, writer, validator, report_finalizer, paper_writer, cleanup)
+├── paper_formatter.py   # LaTeX validation, cleaning, PyTinyTeX compilation, error extraction
+├── prompts.py           # All LLM prompt templates (classifier, task_gen, sub-agents, aggregator, writer, validator, paper, fix)
 ├── state.py             # WorkflowState TypedDict with reducer annotations
 ├── sub_agents.py        # Sub-agent construction (build_sub_agents) and runner factories (build_role_runners)
 ├── tools.py             # Tool re-exports (fetch_trends, think_tool) + URL validation utilities
+├── chart_generator.py   # Matplotlib chart rendering (bar, line, pie, stat_card)
 └── run_sample.py        # Standalone sample script
 ```
 
@@ -332,7 +350,7 @@ src/lg_workflow_agent/
 
 ```mermaid
 flowchart TD
-    CLIENT["Client / Streamlit UI"]
+    CLIENT["Client / Frontend UI"]
     API["FastAPI Server<br/>(src/api/server.py)"]
     PIPE["ResearchPipeline<br/>(src/pipeline/orchestrator.py)"]
     WFA["WorkflowAgent<br/>(src/lg_workflow_agent/agent.py)"]
@@ -345,9 +363,10 @@ flowchart TD
     PIPE -->|"cache miss → astream()"| WFA
     WFA --> GRAPH
     GRAPH -->|"intermediate persist"| DB
-    GRAPH -->|"final save_report()"| DB
+    GRAPH -->|"save_report(query, report, paper_latex)"| DB
     PIPE -->|"steps[] polling"| API
     API -->|"GET /status"| CLIENT
+    API -->|"GET /paper/{task_id}<br/>→ PDF download"| CLIENT
 
     style GRAPH fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
     style WFA fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
@@ -357,7 +376,61 @@ The `WorkflowAgent` is a drop-in replacement for the simpler `ResearchAgent` (`s
 
 ---
 
-## 10. Key Design Decisions
+## 10. Paper Writer — LaTeX & PDF Pipeline
+
+The **Paper Writer** node converts completed research reports into publishable academic papers (PDF). It only activates for `deep_research` queries.
+
+```mermaid
+flowchart TD
+    INPUT["final_report + aggregated data"]
+    
+    GEN["1. Generate LaTeX<br/><i>LLM → IEEE-style paper<br/>(article class)</i>"]
+    CLEAN["2. Clean LaTeX<br/><i>Fix texttt quotes, braces,<br/>strip figures, escape chars</i>"]
+    COMPILE["3. Compile → PDF<br/><i>PyTinyTeX (pdflatex)</i>"]
+    
+    COMPILE -->|"Success"| DONE["✅ Return PDF + LaTeX"]
+    COMPILE -->|"Errors"| FIX["4. Feed errors to LLM<br/><i>LATEX_FIX_PROMPT</i>"]
+    FIX --> CLEAN2["Clean fixed LaTeX"]
+    CLEAN2 --> COMPILE2["Retry compile"]
+    COMPILE2 -->|"Success"| DONE
+    COMPILE2 -->|"Still fails (max 2 retries)"| FALLBACK["⚠️ Return LaTeX only<br/>(no PDF)"]
+    
+    INPUT --> GEN --> CLEAN --> COMPILE
+
+    style DONE fill:#e8f5e9,stroke:#388e3c
+    style FALLBACK fill:#fff3e0,stroke:#f57c00
+```
+
+### Key Components
+
+| Component | File | Role |
+|---|---|---|
+| `RESEARCH_PAPER_PROMPT` | `prompts.py` | Instructs LLM to generate compilable LaTeX |
+| `LATEX_FIX_PROMPT` | `prompts.py` | Feeds compilation errors back to LLM for targeted fixes |
+| `clean_latex()` | `paper_formatter.py` | Regex post-processing of common LLM mistakes |
+| `compile_latex_to_pdf()` | `paper_formatter.py` | PyTinyTeX compilation + error extraction |
+| `validate_latex()` | `paper_formatter.py` | Static structural validation (braces, envs, citations) |
+| `extract_paper_metadata()` | `paper_formatter.py` | Extracts title, abstract, sections from LaTeX |
+
+### Storage & Access
+
+- **LaTeX source** → stored in Qdrant alongside the report (`payload.paper_latex`)
+- **PDF (base64)** → stored in the in-memory task dict, served via `GET /paper/{task_id}`
+- **Cache hits** → if a similar query was previously processed, both report and paper are returned immediately
+
+### API Endpoint
+
+```
+GET /paper/{task_id}
+```
+
+- If PDF compiled successfully → returns PDF as a downloadable `application/pdf` response
+- If PDF compilation failed → returns JSON with LaTeX source and error details
+- If query wasn't `deep_research` → returns 404
+
+---
+
+## 11. Key Design Decisions
 
 | Decision | Rationale |
 |---|---|
@@ -367,3 +440,7 @@ The `WorkflowAgent` is a drop-in replacement for the simpler `ResearchAgent` (`s
 | **Max 2 rewrites** | Prevents infinite loops when the LLM keeps generating bad references. After 2 rewrites, invalid URLs are replaced with `[invalid link removed]` |
 | **Sub-agents built once** | `create_agent` is called at graph-build time, not per-invocation. Runners are lightweight closures that just call `.invoke()` on the pre-built agent |
 | **Best-effort persistence** | `_persist()` wraps all DB writes in try/except so a Qdrant outage never breaks the workflow |
+| **PyTinyTeX for compilation** | Pip-installable LaTeX distribution — no system `pdflatex` or Dockerfile needed. Auto-downloads TinyTeX on first use |
+| **LLM retry loop for LaTeX** | Static regex can't fix all LaTeX errors. Feeding actual `pdflatex` error log back to the LLM yields targeted fixes. Max 2 retries prevents runaway LLM calls |
+| **PDF-only output** | Users receive compiled PDFs (no raw `.tex` exposed). If compilation fails, LaTeX is stored in Qdrant as fallback |
+| **Paper only for deep_research** | Paper generation adds ~30-60s of LLM + compile time. Only worth it for rigorous research queries, not quick blog/summary posts |
