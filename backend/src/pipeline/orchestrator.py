@@ -58,10 +58,19 @@ class ResearchPipeline:
         if cached:
             result: Dict[str, Any] = {"status": "found", "report": cached["report"]}
             if cached.get("paper_latex"):
-                result["research_paper"] = {
+                paper_data: Dict[str, Any] = {
                     "latex": cached["paper_latex"],
                     "metadata": {},
                 }
+                # Re-compile PDF from cached LaTeX (fast, ~1s)
+                try:
+                    from src.lg_workflow_agent.paper_formatter import compile_latex_to_pdf, pdf_to_base64
+                    pdf_bytes, _ = compile_latex_to_pdf(cached["paper_latex"])
+                    if pdf_bytes:
+                        paper_data["pdf_base64"] = pdf_to_base64(pdf_bytes)
+                except Exception:
+                    pass
+                result["research_paper"] = paper_data
             return result
 
         # Step 2 — cache miss → create a pending task

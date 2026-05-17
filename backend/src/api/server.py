@@ -24,6 +24,9 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-5s | %(name)s | %(message)s",
     datefmt="%H:%M:%S",
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("pytinytex").setLevel(logging.WARNING)
 
 DEFAULT_CORS_ORIGINS = [
     "https://ai-report-gen.onrender.com",
