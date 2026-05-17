@@ -4,7 +4,7 @@ A comprehensive, production-ready AI-powered research system that orchestrates a
 
 ## 🌟 System Architecture & Workflow
 
-The system uses a **LangGraph multi-agent workflow** where specialized sub-agents (Data Collection, Statistics, Citation, Web Research, Latest News) execute in parallel, then the results are aggregated, written, validated, enriched with charts, and — for deep research queries — converted into a LaTeX/PDF academic paper.
+The system uses a **LangGraph multi-agent workflow**. The Classifier first checks whether the query is researchable — vague, unclear, divergent, bare-keyword, or simple Q&A queries are flagged as **ambiguous** and short-circuit straight to Cleanup, which returns a user-facing explanation instead of wasting tokens on sub-agents. For well-formed queries, specialized sub-agents (Data Collection, Statistics, Citation, Web Research, Latest News) execute in parallel, then the results are aggregated, written, validated, enriched with charts, and — for deep research queries — converted into a LaTeX/PDF academic paper.
 
 ```mermaid
 graph TD
@@ -12,8 +12,10 @@ graph TD
     API --> Pipeline[Research Pipeline]
 
     subgraph LangGraph Workflow
-        S[START] --> Classifier[Classifier Node<br/>blog / comparative / deep_research / summary]
-        Classifier --> TaskGen[Task Generator Node]
+        S[START] --> Classifier{{Classifier Node<br/>ambiguous? OR<br/>blog / comparative / deep_research / summary}}
+
+        Classifier -->|ambiguous<br/>vague · unclear · divergent ·<br/>bare-keyword · simple Q&A| Cleanup[Cleanup Node<br/>emits rejection report]
+        Classifier -->|valid research query| TaskGen[Task Generator Node]
 
         TaskGen -->|Send fan-out| Agent1(Data Collection Agent)
         TaskGen -->|Send fan-out| Agent2(Statistics Agent)
@@ -33,7 +35,7 @@ graph TD
         Validator -->|Rewrite max 2x| Writer
         Validator -->|Valid / Forced| Finalizer[Report Finalizer<br/>generates charts + images]
         Finalizer --> Paper[Paper Writer<br/>LaTeX → PDF<br/>deep_research only]
-        Paper --> Cleanup[Cleanup Node]
+        Paper --> Cleanup
         Cleanup --> E[END]
     end
 
@@ -43,6 +45,20 @@ graph TD
 ```
 
 Each sub-agent has direct access to **9 source-fetching tools** — `fetch_hackernews`, `fetch_youtube`, `fetch_github`, `fetch_linkedin`, `fetch_reddit`, `fetch_rss`, `fetch_google_news`, `fetch_podcasts`, `fetch_arxiv` — plus a `think_tool` for reflection. All sources are queried via native async HTTP, no external MCP hop.
+
+### Query Classification & Ambiguity Gate
+
+The Classifier is the first guardrail in the pipeline. It assigns one of five labels:
+
+| Label | Activated Sub-Agents | Examples |
+|---|---|---|
+| `deep_research` | `data_collection`, `statistics`, `citation` | "Survey of LLM safety alignment techniques 2024-2025 with empirical results" |
+| `blog` | `web_research`, `latest_news_collection` | "Write an explainer on retrieval-augmented generation" |
+| `comparative` | `web_research`, `latest_news_collection` | "Compare LangGraph and CrewAI for multi-agent workflows" |
+| `summary` | `web_research`, `latest_news_collection` | "Summarize recent advances in vector databases" |
+| `ambiguous` | _none — skip straight to Cleanup_ | "tell me something interesting", "data analysis real estate", "is training data dependent on number of labels?", "compare them" |
+
+A query is flagged as **ambiguous** when it is too vague/generic, unclear or missing context, mixes unrelated topics, is just a bare keyword pile with no research intent, or is a simple yes-no / how-to / factual Q&A that doesn't warrant a researched article. Ambiguous queries bypass task generation, sub-agents, aggregator, writer, validator, finalizer, and paper writer entirely — Cleanup returns a short rejection report explaining why and how to rephrase the query.
 
 ## 🚀 Setup and Run the System
 
@@ -171,9 +187,13 @@ def build(self):
     wf.add_node("task_generator", create_node_task_generator(self.llm, self.db))
     # ... sub-agent nodes added here ...
 
-    # Linear front: START -> classify -> task_gen -> fan-out
+    # Linear front: START -> classify -> (ambiguous? cleanup : task_gen) -> fan-out
     wf.add_edge(START, "classifier")
-    wf.add_edge("classifier", "task_generator")
+    wf.add_conditional_edges(
+        "classifier",
+        _route_after_classifier,
+        {"ambiguous": "cleanup", "continue": "task_generator"},
+    )
 
     # Dynamic fan-out to specialized agents based on task breakdown
     wf.add_conditional_edges(
