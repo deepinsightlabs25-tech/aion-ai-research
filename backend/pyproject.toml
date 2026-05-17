@@ -34,13 +34,3 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
-[dependency-groups]
-dev = [
-    "ipykernel>=6.31.0",
-    "ipywidgets>=8.1.8",
-    "jupyter>=1.1.1",
-    "pytest>=8.4.2",
-    "grpcio-tools>=1.66.2",
-    "streamlit>=1.50.0",
-    "deepagents>=0.5.3",
-]

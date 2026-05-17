@@ -1,3 +1,4 @@
+import gc
 import uuid
 import logging
 import time
@@ -9,8 +10,37 @@ from src.lg_workflow_agent import WorkflowAgent
 
 logger = logging.getLogger(__name__)
 
-_MAX_TASKS = 20  # Maximum number of completed tasks to keep in memory
-_TASK_TTL = 3600  # Seconds to keep completed/failed tasks (1 hour)
+_MAX_TASKS = 5  # Maximum number of completed tasks to keep in memory
+_TASK_TTL = 600  # Seconds to keep completed/failed tasks (10 minutes)
+
+# Keys in step metadata that may hold large payloads (base64 PDFs/PNGs, full text)
+_HEAVY_STEP_KEYS = (
+    "research_paper_pdf_base64",
+    "research_paper_latex",
+    "research_paper_metadata",
+    "charts",
+    "final_report",
+    "report",
+    "sections",
+    "aggregated",
+    "sub_agent_outputs",
+    "context",
+)
+
+
+def _release_memory() -> None:
+    """Force release of process memory after a task finishes.
+
+    Closes any open matplotlib figures (chart_generator may leave the
+    pyplot state alive) and runs a full GC pass.
+    """
+    try:
+        from src.lg_workflow_agent import chart_generator as _cg
+        if _cg.plt is not None:
+            _cg.plt.close("all")
+    except Exception:
+        pass
+    gc.collect()
 
 
 class _EvictingTaskStore:
@@ -47,12 +77,15 @@ class _EvictingTaskStore:
             del self._tasks[k]
         # If still over limit, drop oldest completed/failed tasks
         while len(self._tasks) > self._max_tasks:
-            for k, v in self._tasks.items():
+            for k, v in list(self._tasks.items()):
                 if v.get("status") in ("completed", "failed"):
                     del self._tasks[k]
                     break
             else:
-                break
+                # No completed task to evict — drop the oldest entry anyway
+                # to enforce the hard cap and prevent unbounded growth.
+                oldest = next(iter(self._tasks))
+                del self._tasks[oldest]
 
 
 class ResearchPipeline:
@@ -129,6 +162,30 @@ class ResearchPipeline:
         self._tasks[task_id] = record
         return record
 
+    def _finalize_task(self, task_id: str) -> None:
+        """Strip heavy intermediate data from a finished task and free memory.
+
+        After completion, the per-step metadata (which may include base64
+        chart PNGs, PDF bytes, full LLM outputs, etc.) is no longer needed:
+        the final report and research_paper are already top-level fields.
+        Removing it before GC reclaims tens of MB per task.
+        """
+        task = self._tasks.get(task_id)
+        if task is None:
+            return
+        steps = task.get("steps") or []
+        for step in steps:
+            meta = step.get("metadata")
+            if not isinstance(meta, dict):
+                continue
+            for k in _HEAVY_STEP_KEYS:
+                meta.pop(k, None)
+            # Truncate any remaining large string values
+            for k, v in list(meta.items()):
+                if isinstance(v, str) and len(v) > 2048:
+                    meta[k] = v[:512] + f"... [{len(v)} chars truncated]"
+        _release_memory()
+
     def run_task(self, task_id: str, query: str) -> None:
         """Execute the research agent, persist the report, and update task state.
 
@@ -153,6 +210,8 @@ class ResearchPipeline:
             self._tasks[task_id]["status"] = "failed"
             self._tasks[task_id]["error"] = str(exc)
             logger.exception("Task %s failed", task_id)
+        finally:
+            self._finalize_task(task_id)
 
     async def run_task_streaming(self, task_id: str, query: str) -> None:
         """Execute the agent asynchronously, streaming per-step progress updates.
@@ -178,10 +237,34 @@ class ResearchPipeline:
 
         try:
             async for update in self.agent.astream(query):
+                step_data = update.get("data", {}) or {}
+
+                # Capture research paper output from the paper_writer node
+                # BEFORE we strip step_data so the top-level dict keeps the
+                # full payload while task["steps"] stays light-weight.
+                if step_data.get("research_paper_latex"):
+                    research_paper_data = {
+                        "latex": step_data["research_paper_latex"],
+                        "metadata": step_data.get("research_paper_metadata", {}),
+                        "pdf_base64": step_data.get("research_paper_pdf_base64"),
+                    }
+
+                # Build a lightweight metadata dict: drop heavy payloads
+                # (base64 PDFs/PNGs, full report duplicates, etc.) so each
+                # accumulated step record stays in the kilobytes range.
+                light_meta: Dict[str, Any] = {}
+                for k, v in step_data.items():
+                    if k in _HEAVY_STEP_KEYS:
+                        continue
+                    if isinstance(v, str) and len(v) > 2048:
+                        light_meta[k] = v[:512] + f"... [{len(v)} chars truncated]"
+                    else:
+                        light_meta[k] = v
+
                 step_record = {
                     "step": update["step"],
                     "content": update["content"],
-                    "metadata": update.get("data", {}),
+                    "metadata": light_meta,
                 }
                 task["steps"].append(step_record)
                 logger.debug(
@@ -193,15 +276,6 @@ class ResearchPipeline:
                 # Track last non-empty content so we can surface the final report
                 if update["content"]:
                     last_content = update["content"]
-
-                # Capture research paper output from the paper_writer node
-                step_data = update.get("data", {})
-                if step_data.get("research_paper_latex"):
-                    research_paper_data = {
-                        "latex": step_data["research_paper_latex"],
-                        "metadata": step_data.get("research_paper_metadata", {}),
-                        "pdf_base64": step_data.get("research_paper_pdf_base64"),
-                    }
 
             # Ensure we have captured the final report content
             if last_content:
@@ -232,6 +306,8 @@ class ResearchPipeline:
             task["status"] = "failed"
             task["error"] = str(exc)
             logger.exception("Task %s failed after %.1fs", task_id, elapsed)
+        finally:
+            self._finalize_task(task_id)
 
     # ------------------------------------------------------------------
     # Task status
