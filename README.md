@@ -4,43 +4,45 @@ A comprehensive, production-ready AI-powered research system that orchestrates a
 
 ## 🌟 System Architecture & Workflow
 
-The system uses a LangGraph-based workflow where specialized agents (Data Collection, Statistics, Citation, Web Research, Latest News) collaborate to draft the final research report.
+The system uses a **LangGraph multi-agent workflow** where specialized sub-agents (Data Collection, Statistics, Citation, Web Research, Latest News) execute in parallel, then the results are aggregated, written, validated, enriched with charts, and — for deep research queries — converted into a LaTeX/PDF academic paper.
 
 ```mermaid
 graph TD
     User([User Request]) --> API[FastAPI Server]
     API --> Pipeline[Research Pipeline]
-    
+
     subgraph LangGraph Workflow
-        S[START] --> Classifier[Query Classifier Node]
+        S[START] --> Classifier[Classifier Node<br/>blog / comparative / deep_research / summary]
         Classifier --> TaskGen[Task Generator Node]
-        
-        TaskGen -->|Fan-out| Agent1(Data Collection Agent)
-        TaskGen -->|Fan-out| Agent2(Statistics Agent)
-        TaskGen -->|Fan-out| Agent3(Citation Agent)
-        TaskGen -->|Fan-out| Agent4(Web Research Agent)
-        TaskGen -->|Fan-out| Agent5(Latest News Agent)
-        
+
+        TaskGen -->|Send fan-out| Agent1(Data Collection Agent)
+        TaskGen -->|Send fan-out| Agent2(Statistics Agent)
+        TaskGen -->|Send fan-out| Agent3(Citation Agent)
+        TaskGen -->|Send fan-out| Agent4(Web Research Agent)
+        TaskGen -->|Send fan-out| Agent5(Latest News Agent)
+
         Agent1 --> Agg[Aggregator Node]
         Agent2 --> Agg
         Agent3 --> Agg
         Agent4 --> Agg
         Agent5 --> Agg
-        
+
         Agg --> Writer[Writer Node]
-        Writer --> Validator{Validator Node}
-        
-        Validator -->|Rewrite| Writer
-        Validator -->|Valid| Finalizer[Report Finalizer Node]
-        
-        Finalizer --> Cleanup[Cleanup Node]
+        Writer --> Validator{Validator Node<br/>URL + relevance}
+
+        Validator -->|Rewrite max 2x| Writer
+        Validator -->|Valid / Forced| Finalizer[Report Finalizer<br/>generates charts + images]
+        Finalizer --> Paper[Paper Writer<br/>LaTeX → PDF<br/>deep_research only]
+        Paper --> Cleanup[Cleanup Node]
         Cleanup --> E[END]
     end
-    
+
     Pipeline -->|Init Graph| S
-    Pipeline --> DB[(Qdrant / Postgres DB)]
-    Pipeline -.->|Async Stream| UI[React Frontend]
+    Pipeline --> DB[(Qdrant Vector Cache<br/>+ Supabase Postgres)]
+    Pipeline -.->|Async astream| UI[React Frontend<br/>WorkflowGraphPanel]
 ```
+
+Each sub-agent has direct access to **9 source-fetching tools** — `fetch_hackernews`, `fetch_youtube`, `fetch_github`, `fetch_linkedin`, `fetch_reddit`, `fetch_rss`, `fetch_google_news`, `fetch_podcasts`, `fetch_arxiv` — plus a `think_tool` for reflection. All sources are queried via native async HTTP, no external MCP hop.
 
 ## 🚀 Setup and Run the System
 
@@ -275,7 +277,9 @@ sequenceDiagram
   ```
 
 ### 4. Database Integration
-The system relies on a vector database (`Qdrant`) for caching previous research and storing semantic representations, paired with a relational/NoSQL layer (like `Postgres`) for task tracking and metadata tracking (`backend/src/db/`).
+The system uses two persistence layers:
+- **Qdrant** (`backend/src/db/database.py`) — vector cache for prior research reports; semantic similarity search (cosine ≥ 0.85) avoids redundant work and can fall back to an in-memory instance when `QDRANT_URL` is unset.
+- **Supabase Postgres** (`backend/src/db/postgres.py`, `backend/src/db/supabase_client.py`) — task lifecycle tracking, per-user history, and step persistence keyed by `task_id`.
 
 ```python
 # backend/src/db/postgres.py (Conceptual DB interaction)

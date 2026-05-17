@@ -46,10 +46,11 @@ flowchart TD
     AGG --> WRITER
     WRITER --> VALIDATOR
 
-    VALIDATOR -->|"VALID / FORCED_FINISH"| RF["🖼️ Report Finalizer<br/><i>Generates charts/images</i>"]
+    VALIDATOR -->|"VALID / FORCED_FINISH"| RF["🖼️ Report Finalizer<br/><i>Generates charts/images,<br/>embeds into report</i>"]
     VALIDATOR -->|"INVALID_REFS<br/>(rewrite loop, max 2 iterations)"| WRITER
 
-    RF --> CLEANUP
+    RF --> PW["📑 Paper Writer<br/><i>LaTeX → PDF<br/>(deep_research only;<br/>no-op for other types)</i>"]
+    PW --> CLEANUP
     CLEANUP --> FINISH
 ```
 
@@ -97,6 +98,7 @@ sequenceDiagram
     participant WR as Writer
     participant VA as Validator
     participant RF as Report Finalizer
+    participant PW as Paper Writer
     participant CU as Cleanup
     participant DB as Qdrant DB
 
@@ -113,7 +115,7 @@ sequenceDiagram
         SA->>SA: data_collection / statistics / citation
         SA->>SA: web_research / latest_news_collection
     end
-    Note over SA: Each sub-agent uses fetch_trends + think_tool
+    Note over SA: Each sub-agent uses fetch_* source tools + think_tool
 
     SA->>AG: worker_outputs[] (merged via add reducer)
 
@@ -131,7 +133,9 @@ sequenceDiagram
         alt All references valid
             VA->>RF: validated report + aggregated data
             RF->>RF: generate charts, render images, embed into report
-            RF->>CU: final_report
+            RF->>PW: report_with_charts
+            PW->>PW: if deep_research → LaTeX → PDF (compile retry x3)
+            PW->>CU: final_report + paper artifacts
         else Broken / irrelevant refs found
             VA->>WR: invalid_references[] → rewrite
             WR->>VA: revised draft_report
@@ -140,7 +144,7 @@ sequenceDiagram
 
     CU->>DB: save_report(query, final_report)
     CU->>DB: cleanup_task_data(task_id)
-    CU-->>U: final_report
+    CU-->>U: final_report (+ pdf_base64 for deep_research)
 ```
 
 ---
@@ -168,6 +172,9 @@ classDiagram
         +validation_feedback : str
         +invalid_references : list~str~
         +rewrite_iterations : int
+        +research_paper_latex : str
+        +research_paper_metadata : dict
+        +research_paper_pdf_base64 : str | None
     }
 
     note for WorkflowState "worker_outputs uses operator.add reducer; parallel Send() results are appended, not overwritten"
@@ -181,12 +188,15 @@ classDiagram
 | `worker_outputs` | Sub-agents (additive) | Aggregator |
 | `aggregated` | Aggregator | Writer, Validator |
 | `draft_report` | Writer | Validator |
-| `final_report` | Validator / Cleanup | API response |
+| `final_report` | Validator / Report Finalizer | Paper Writer, Cleanup, API response |
 | `chart_specs` | Report Finalizer | Report Finalizer / Cleanup |
 | `report_images` | Report Finalizer | Cleanup / persisted report payload |
 | `invalid_references`, `rewrite_iterations` | Validator | Writer (rewrite loop) |
+| `research_paper_latex` | Paper Writer | Cleanup / persisted payload |
+| `research_paper_metadata` | Paper Writer | Cleanup / persisted payload |
+| `research_paper_pdf_base64` | Paper Writer | API response (`/status`) for deep_research queries |
 
-> Note: The new `Report Finalizer` node enriches validated drafts with auto-generated charts and embedded image assets before cleanup.
+> Note: The `Report Finalizer` node enriches validated drafts with auto-generated charts and embedded image assets. For `deep_research` queries, the downstream `Paper Writer` then produces a LaTeX manuscript that is compiled to PDF (returned as base64 in `research_paper_pdf_base64`). For all other query types the paper writer is a no-op.
 
 ---
 
@@ -198,7 +208,7 @@ Each sub-agent is a pre-built `create_agent` instance constructed **once** at gr
 flowchart TD
     subgraph BUILD_TIME ["Graph Build Time (once)"]
         LLM["ChatGoogleGenerativeAI<br/>(gemini-2.5-flash)"]
-        TOOLS["Tools:<br/>fetch_trends<br/>think_tool"]
+        TOOLS["Tools:<br/>fetch_* (9 sources)<br/>think_tool"]
         BUILD["build_sub_agents(llm, tools)"]
 
         LLM --> BUILD
@@ -273,41 +283,69 @@ flowchart TD
 
 ## 7. Tools
 
-Both tools are shared across all sub-agents:
+Each sub-agent has direct access to one source-fetching tool per supported platform plus a reflection tool. All fetchers are **native async** — they call the underlying source API directly (no external MCP server in the loop):
 
 ```mermaid
 flowchart LR
-    subgraph TOOLS ["Available Tools"]
-        FT["fetch_trends<br/>(source, topic, limit, period)"]
+    subgraph TOOLS ["Available Tools (LangChain @tool)"]
+        FH["fetch_hackernews"]
+        FY["fetch_youtube"]
+        FG["fetch_github"]
+        FL["fetch_linkedin"]
+        FR["fetch_reddit"]
+        FS["fetch_rss"]
+        FN["fetch_google_news"]
+        FP["fetch_podcasts"]
+        FA["fetch_arxiv"]
         TT["think_tool<br/>(reflection)"]
     end
 
-    subgraph EXTERNAL ["External"]
-        MCP["Research MCP Server<br/>https://research-mcp-...onrender.com"]
+    subgraph SOURCES ["src/lg_workflow_agent/sources/"]
+        S1["hackernews.py"]
+        S2["youtube.py"]
+        S3["github.py"]
+        S4["linkedin.py"]
+        S5["reddit.py"]
+        S6["rss.py"]
+        S7["google_news.py"]
+        S8["podcast.py"]
+        S9["arxiv.py"]
     end
 
-    FT -->|"POST /trends/{source}"| MCP
-    TT -->|"Returns reflection<br/>(strategic pause)"| TT
+    FH --> S1
+    FY --> S2
+    FG --> S3
+    FL --> S4
+    FR --> S5
+    FS --> S6
+    FN --> S7
+    FP --> S8
+    FA --> S9
 
-    subgraph SOURCES ["Supported Sources"]
-        S1["hackernews"]
-        S2["youtube"]
-        S3["github"]
-        S4["google-linkedin"]
-        S5["reddit"]
-        S6["rss"]
-        S7["google-news"]
-        S8["podcasts"]
-        S9["arxiv"]
-    end
-
-    FT --> SOURCES
+    S1 -->|httpx| HN["Hacker News API"]
+    S2 -->|httpx| YT["YouTube"]
+    S3 -->|httpx| GH["GitHub API"]
+    S4 -->|httpx| GS["Google search"]
+    S5 -->|httpx| RD["Reddit"]
+    S6 -->|feedparser| RSS["RSS feeds"]
+    S7 -->|httpx| GN["Google News"]
+    S8 -->|httpx| PC["Podcast directories"]
+    S9 -->|httpx| AX["arXiv API"]
 ```
+
+Each fetcher returns a Pydantic `SourceResult` serialised to JSON for the LLM. The active set of tools is identical across sub-agents; prompts steer which sources are appropriate per role.
 
 Additionally, the **Validator node** uses internal URL-checking utilities (not agent tools):
 - `extract_urls(text)` — regex extraction of HTTP/HTTPS URLs from text
 - `validate_url(url)` — HEAD/GET reachability check
 - `validate_urls(urls)` — batch validation returning `{url: bool}`
+
+And the **Paper Writer node** uses LaTeX utilities from `paper_formatter.py`:
+- `clean_latex(text)` — strip stray markdown / artefacts
+- `validate_latex(text)` — structural sanity check
+- `compile_latex_to_pdf(text)` — `pdflatex` invocation with error capture
+- `extract_paper_metadata(text)` — title/abstract/word-count extraction
+- `pdf_to_base64(path)` — final encoding for API transport
 
 ---
 
@@ -318,12 +356,28 @@ src/lg_workflow_agent/
 ├── __init__.py          # Public API exports: WorkflowAgent, WorkflowGraphBuilder, WorkflowState
 ├── agent.py             # WorkflowAgent — top-level entry point (build, invoke, astream)
 ├── graph.py             # WorkflowGraphBuilder — LangGraph StateGraph construction
-├── nodes.py             # Node factories (classifier, task_gen, aggregator, writer, validator, cleanup)
-├── prompts.py           # All LLM prompt templates (classifier, task_gen, sub-agents, aggregator, writer, validator)
+├── nodes.py             # Node factories (classifier, task_gen, sub-agent runners, aggregator,
+│                       #                writer, validator, report_finalizer, paper_writer, cleanup)
+├── prompts.py           # All LLM prompt templates
 ├── state.py             # WorkflowState TypedDict with reducer annotations
-├── sub_agents.py        # Sub-agent construction (build_sub_agents) and runner factories (build_role_runners)
-├── tools.py             # Tool re-exports (fetch_trends, think_tool) + URL validation utilities
-└── run_sample.py        # Standalone sample script
+├── sub_agents.py        # build_sub_agents() + build_role_runners() factories
+├── tools.py             # @tool fetchers + URL validation utilities
+├── chart_generator.py   # matplotlib renderers for 12+ chart/diagram types → base64 PNG
+├── paper_formatter.py   # LaTeX cleaning, validation, pdflatex compilation, PDF → base64
+├── run_sample.py        # Standalone sample script
+└── sources/             # Direct async source fetchers (no MCP)
+    ├── arxiv.py
+    ├── github.py
+    ├── google_news.py
+    ├── hackernews.py
+    ├── linkedin.py
+    ├── podcast.py
+    ├── reddit.py
+    ├── rss.py
+    ├── youtube.py
+    ├── _config.py       # Shared HTTP config (timeouts, headers, retries)
+    ├── _feed_utils.py   # RSS/feed helpers
+    └── _models.py       # SourceResult Pydantic schema
 ```
 
 ---
@@ -353,7 +407,7 @@ flowchart TD
     style WFA fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
 ```
 
-The `WorkflowAgent` is a drop-in replacement for the simpler `ResearchAgent` (`src/agent/core.py`). Both expose the same `build()` / `invoke(query)` / `astream(query)` interface, but the workflow agent decomposes the query into parallel specialized sub-agents before producing the final report.
+The `WorkflowAgent` is the sole research runtime exposed to the pipeline. It compiles the LangGraph once at startup and exposes the standard `build()` / `invoke(query)` / `astream(query)` interface used by `ResearchPipeline`. The workflow decomposes the query into parallel specialized sub-agents before producing the final report, then enriches it with charts and (for deep research) a compiled LaTeX PDF.
 
 ---
 
@@ -366,4 +420,6 @@ The `WorkflowAgent` is a drop-in replacement for the simpler `ResearchAgent` (`s
 | **Two-axis validation** | URL reachability alone isn't sufficient — an accessible but off-topic page is equally harmful. LLM relevance scoring catches fabricated or tangential references |
 | **Max 2 rewrites** | Prevents infinite loops when the LLM keeps generating bad references. After 2 rewrites, invalid URLs are replaced with `[invalid link removed]` |
 | **Sub-agents built once** | `create_agent` is called at graph-build time, not per-invocation. Runners are lightweight closures that just call `.invoke()` on the pre-built agent |
-| **Best-effort persistence** | `_persist()` wraps all DB writes in try/except so a Qdrant outage never breaks the workflow |
+| **Direct source fetchers (no MCP)** | Each source now has a native async module under `sources/`. Eliminating the MCP hop removes a network round-trip per tool call, a deployment dependency, and a class of timeout / cold-start failures |
+| **Paper writer is a single node, not a sub-graph** | The LaTeX compile-fix loop happens inside `node_paper_writer` (up to 3 attempts with an LLM-driven fix prompt). Keeping it as a single node avoids polluting the public graph topology with deep-research-only edges |
+| **Best-effort persistence** | `_persist()` wraps all DB writes in try/except so a Qdrant or Postgres outage never breaks the workflow |
