@@ -44,14 +44,21 @@ def create_node_cleanup(db):
                 query, state.get("ambiguous_reason", "")
             )
             paper_latex = None
+            paper_images = None
         else:
             final_report = state.get("final_report") or state.get("draft_report") or ""
             paper_latex = state.get("research_paper_latex")
+            paper_images = state.get("research_paper_images") or None
 
         # Persist the finished report (and paper if available) keyed by the query.
         if db is not None and query and final_report:
             try:
-                db.save_report(query, final_report, paper_latex=paper_latex)
+                db.save_report(
+                    query,
+                    final_report,
+                    paper_latex=paper_latex,
+                    paper_images=paper_images if not is_ambiguous else None,
+                )
             except Exception:
                 pass
 

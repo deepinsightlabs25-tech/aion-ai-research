@@ -145,7 +145,10 @@ class ResearchPipeline:
                 # Re-compile PDF from cached LaTeX (fast, ~1s)
                 try:
                     from src.lg_workflow_agent.paper_formatter import compile_latex_to_pdf, pdf_to_base64
-                    pdf_bytes, _ = compile_latex_to_pdf(cached["paper_latex"])
+                    pdf_bytes, _ = compile_latex_to_pdf(
+                        cached["paper_latex"],
+                        images=cached.get("paper_images"),
+                    )
                     if pdf_bytes:
                         paper_data["pdf_base64"] = pdf_to_base64(pdf_bytes)
                 except Exception:

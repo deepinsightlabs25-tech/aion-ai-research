@@ -49,3 +49,4 @@ class WorkflowState(TypedDict, total=False):
     research_paper_latex: str
     research_paper_metadata: dict[str, Any]
     research_paper_pdf_base64: str | None
+    research_paper_images: list[dict[str, str]]      # [{filename, data_uri, caption}]

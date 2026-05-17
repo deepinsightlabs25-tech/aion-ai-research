@@ -39,10 +39,11 @@ class VectorDBContext:
     def _get_embedding(self, text: str) -> list[float]:
         return self.embeddings.embed_query(text)
         
-    def search_query(self, query: str) -> Optional[Dict[str, str]]:
+    def search_query(self, query: str) -> Optional[Dict[str, Any]]:
         """Search if a similar query has already been processed.
 
-        Returns a dict with 'report' and optionally 'paper_latex' keys, or None.
+        Returns a dict with 'report' and optionally 'paper_latex' / 'paper_images'
+        keys, or None.
         """
         try:
             vector = self._get_embedding(query)
@@ -57,16 +58,24 @@ class VectorDBContext:
             if results and len(results) > 0:
                 best_match = results[0]
                 if best_match.score >= SIMILARITY_THRESHOLD:
-                    hit: Dict[str, str] = {"report": best_match.payload.get("report", "")}
+                    hit: Dict[str, Any] = {"report": best_match.payload.get("report", "")}
                     if best_match.payload.get("paper_latex"):
                         hit["paper_latex"] = best_match.payload["paper_latex"]
+                    if best_match.payload.get("paper_images"):
+                        hit["paper_images"] = best_match.payload["paper_images"]
                     return hit
         except Exception as e:
             print(f"Error searching query: {e}")
             
         return None
         
-    def save_report(self, query: str, report: str, paper_latex: str | None = None) -> None:
+    def save_report(
+        self,
+        query: str,
+        report: str,
+        paper_latex: str | None = None,
+        paper_images: list[Dict[str, str]] | None = None,
+    ) -> None:
         """Save a new original query, its generated report, and optional LaTeX paper."""
         try:
             vector = self._get_embedding(query)
@@ -77,6 +86,8 @@ class VectorDBContext:
             }
             if paper_latex:
                 payload["paper_latex"] = paper_latex
+            if paper_images:
+                payload["paper_images"] = paper_images
             self.client.upsert(
                 collection_name=COLLECTION_NAME,
                 points=[

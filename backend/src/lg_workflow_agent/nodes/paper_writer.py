@@ -170,6 +170,7 @@ def create_node_paper_writer(llm, db):
             "research_paper_latex": latex,
             "research_paper_metadata": full_metadata,
             "research_paper_pdf_base64": pdf_base64,
+            "research_paper_images": paper_images,
         }
 
     return node_paper_writer
