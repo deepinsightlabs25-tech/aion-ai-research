@@ -585,4 +585,11 @@ def generate_charts_for_report(chart_specs: list[dict]) -> list[dict[str, str]]:
                 "caption": spec.get("caption", spec.get("title", "Chart")),
                 "data_uri": uri,
             })
+    # Release any matplotlib state still held by pyplot to free memory
+    # between queries (each figure can retain several MB of buffers).
+    if plt is not None:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
     return results
