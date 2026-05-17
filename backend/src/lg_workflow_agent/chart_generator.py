@@ -19,6 +19,7 @@ import base64
 import io
 import json
 import re
+import textwrap
 from typing import Any
 
 __all__ = ["generate_charts_for_report", "render_chart"]
@@ -247,6 +248,26 @@ def _make_pie_chart(spec: dict) -> str:
     return _fig_to_base64(fig)
 
 
+def _wrap_cell(text: str, width: int) -> str:
+    """Wrap long cell text so it fits within a column without overlapping."""
+    text = str(text) if text is not None else ""
+    if not text:
+        return ""
+    lines: list[str] = []
+    for paragraph in text.splitlines() or [text]:
+        if not paragraph:
+            lines.append("")
+            continue
+        wrapped = textwrap.wrap(
+            paragraph,
+            width=width,
+            break_long_words=True,
+            break_on_hyphens=True,
+        ) or [""]
+        lines.extend(wrapped)
+    return "\n".join(lines)
+
+
 def _make_comparison_table(spec: dict) -> str:
     """Render a comparison table as a styled image (avoids markdown table limitations)."""
     headers = spec.get("headers", [])
@@ -256,34 +277,73 @@ def _make_comparison_table(spec: dict) -> str:
     if not headers or not rows:
         return ""
 
-    fig, ax = plt.subplots(figsize=(max(8, len(headers) * 2.2), max(3, len(rows) * 0.65 + 1.2)))
+    n_cols = len(headers)
+    # Pick a per-column wrap width based on the number of columns so the
+    # rendered image stays readable. Fewer columns = wider wrap.
+    if n_cols <= 2:
+        wrap_width = 48
+        col_in = 3.6
+    elif n_cols == 3:
+        wrap_width = 34
+        col_in = 3.0
+    elif n_cols == 4:
+        wrap_width = 26
+        col_in = 2.6
+    else:
+        wrap_width = 20
+        col_in = 2.2
+
+    wrapped_headers = [_wrap_cell(h, wrap_width) for h in headers]
+    wrapped_rows = [[_wrap_cell(c, wrap_width) for c in row] for row in rows]
+
+    # Estimate row heights from the maximum number of wrapped lines per row.
+    def _line_count(s: str) -> int:
+        return max(1, s.count("\n") + 1)
+
+    header_lines = max(_line_count(h) for h in wrapped_headers)
+    row_lines = [max(_line_count(c) for c in row) for row in wrapped_rows]
+
+    # ~0.32 inches per text line + padding.
+    fig_h = max(3.0, header_lines * 0.36 + sum(l * 0.32 for l in row_lines) + 1.0)
+    fig_w = max(8.0, n_cols * col_in)
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
     ax.axis("off")
 
-    cell_text = [[str(c) for c in row] for row in rows]
     table = ax.table(
-        cellText=cell_text,
-        colLabels=headers,
+        cellText=wrapped_rows,
+        colLabels=wrapped_headers,
         loc="center",
         cellLoc="center",
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1.0, 1.8)
+    table.set_fontsize(9)
 
-    # Style cells
-    for (row, col), cell in table.get_celld().items():
+    total_lines = header_lines + sum(row_lines)
+    # Pixel height available for the table area (figure minus title pad).
+    # Set each cell height proportional to its line count so wrapped text
+    # doesn't overlap into the next row.
+    cells = table.get_celld()
+    base_unit = 1.0 / max(1, total_lines)
+    for (row_idx, col_idx), cell in cells.items():
         cell.set_edgecolor(_RULE)
         cell.set_linewidth(0.6)
-        if row == 0:
+        # Padding inside the cell so text doesn't touch borders.
+        cell.PAD = 0.05
+        if row_idx == 0:
             cell.set_facecolor(_HEADER_BG)
             cell.set_text_props(color=_FG, fontweight="bold")
+            cell.set_height(base_unit * header_lines * 1.4)
         else:
-            cell.set_facecolor(_BG if row % 2 == 1 else _BAND_BG)
+            cell.set_facecolor(_BG if row_idx % 2 == 1 else _BAND_BG)
             cell.set_text_props(color=_FG)
+            cell.set_height(base_unit * row_lines[row_idx - 1] * 1.4)
 
     if title:
-        ax.set_title(title, fontsize=12, fontweight="bold", pad=14, color=_FG)
-    fig.tight_layout()
+        fig.suptitle(title, fontsize=12, fontweight="bold", color=_FG, y=0.99)
+        fig.tight_layout(rect=[0, 0, 1, 0.94])
+    else:
+        fig.tight_layout()
     return _fig_to_base64(fig)
 
 
@@ -411,19 +471,40 @@ def _make_flowchart(spec: dict) -> str:
         return ""
 
     n_steps = len(steps)
-    fig, ax = plt.subplots(figsize=(8.0, max(5, n_steps * 1.1)))
+    # Wrap each step's text so it fits the box width (~28 chars per line).
+    wrap_width = 28
+    wrapped = [_wrap_cell(s.get("text", f"Step {i+1}"), wrap_width)
+               for i, s in enumerate(steps)]
+    line_counts = [max(1, t.count("\n") + 1) for t in wrapped]
+
+    # Per-step vertical slot scales with wrapped line count to prevent
+    # overflow into adjacent boxes/arrows.
+    slot_heights = [1.0 + 0.35 * (lc - 1) for lc in line_counts]
+    total_h = sum(slot_heights)
+
+    fig_h = max(5.0, total_h * 1.1 + 0.8)
+    fig, ax = plt.subplots(figsize=(8.0, fig_h))
     ax.set_xlim(-1, 3)
-    ax.set_ylim(-0.5, n_steps)
+    ax.set_ylim(-0.3, total_h + 0.6)
     ax.axis("off")
 
-    for i, step in enumerate(steps):
-        y_pos = n_steps - 1 - i
-        text = step.get("text", f"Step {i+1}")
-        accent = step.get("color", _ACCENT_COLORS[i % len(_ACCENT_COLORS)])
+    # Compute box centres from the top down.
+    centres: list[float] = []
+    cursor = total_h
+    for h in slot_heights:
+        cursor -= h
+        centres.append(cursor + h / 2.0)
 
-        # Light fill box with accent border (academic-diagram style).
+    box_half_widths = 0.85  # x: 0.15 -> 1.85
+    for i, (step, text, centre, slot_h, lc) in enumerate(
+        zip(steps, wrapped, centres, slot_heights, line_counts)
+    ):
+        accent = step.get("color", _ACCENT_COLORS[i % len(_ACCENT_COLORS)])
+        box_h = 0.5 + 0.32 * (lc - 1)
+
         box = FancyBboxPatch(
-            (0.2, y_pos - 0.32), 1.6, 0.58,
+            (1.0 - box_half_widths, centre - box_h / 2.0),
+            box_half_widths * 2.0, box_h,
             boxstyle="round,pad=0.08",
             facecolor="#f5f7fa",
             edgecolor=accent,
@@ -431,21 +512,29 @@ def _make_flowchart(spec: dict) -> str:
         )
         ax.add_patch(box)
 
-        ax.text(1, y_pos, text, ha="center", va="center",
-                fontsize=10, fontweight="bold", color=_FG, wrap=True)
+        ax.text(1, centre, text, ha="center", va="center",
+                fontsize=9, fontweight="bold", color=_FG,
+                linespacing=1.15)
 
+        # Arrow from this box's bottom to the next box's top.
         if i < n_steps - 1:
-            arrow = FancyArrowPatch(
-                (1, y_pos - 0.38), (1, y_pos - 0.62),
-                arrowstyle="-|>",
-                mutation_scale=14,
-                linewidth=1.2,
-                color=_MUTED,
-            )
-            ax.add_patch(arrow)
+            next_centre = centres[i + 1]
+            next_lc = line_counts[i + 1]
+            next_box_h = 0.5 + 0.32 * (next_lc - 1)
+            arrow_top = centre - box_h / 2.0 - 0.02
+            arrow_bottom = next_centre + next_box_h / 2.0 + 0.02
+            if arrow_top > arrow_bottom:
+                arrow = FancyArrowPatch(
+                    (1, arrow_top), (1, arrow_bottom),
+                    arrowstyle="-|>",
+                    mutation_scale=14,
+                    linewidth=1.2,
+                    color=_MUTED,
+                )
+                ax.add_patch(arrow)
 
     if title:
-        ax.text(1, n_steps + 0.25, title, ha="center", va="bottom",
+        ax.text(1, total_h + 0.35, title, ha="center", va="bottom",
                 fontsize=12, fontweight="bold", color=_FG)
 
     return _fig_to_base64(fig)
@@ -477,8 +566,14 @@ def _make_architecture_diagram(spec: dict) -> str:
         comp_type = comp.get("type", "module")
         accent = comp.get("color", _ACCENT_COLORS[idx % len(_ACCENT_COLORS)])
 
+        wrapped_name = _wrap_cell(name, 18)
+        wrapped_type = _wrap_cell(comp_type, 22)
+        name_lines = wrapped_name.count("\n") + 1
+        # Grow box height a little when the name wraps to >1 line.
+        box_h = 0.6 + 0.18 * max(0, name_lines - 1)
+
         box = FancyBboxPatch(
-            (x - 0.36, y - 0.3), 0.72, 0.6,
+            (x - 0.42, y - box_h / 2.0), 0.84, box_h,
             boxstyle="round,pad=0.04",
             facecolor="#f5f7fa",
             edgecolor=accent,
@@ -486,10 +581,11 @@ def _make_architecture_diagram(spec: dict) -> str:
         )
         ax.add_patch(box)
 
-        ax.text(x, y + 0.12, name, ha="center", va="center",
-                fontsize=9, fontweight="bold", color=_FG)
-        ax.text(x, y - 0.13, f"({comp_type})", ha="center", va="center",
-                fontsize=7, color=_MUTED, style="italic")
+        ax.text(x, y + 0.10, wrapped_name, ha="center", va="center",
+                fontsize=8.5, fontweight="bold", color=_FG, linespacing=1.1)
+        ax.text(x, y - box_h / 2.0 + 0.10, f"({wrapped_type})",
+                ha="center", va="center",
+                fontsize=7, color=_MUTED, style="italic", linespacing=1.1)
 
     if title:
         ax.text(cols / 2, rows + 0.2, title, ha="center", va="bottom",
