@@ -33,7 +33,7 @@ CRITICAL LaTeX FORMATTING RULES (violations will make the paper un-compilable):
 - All citations must use \\cite{{key}} and match entries in thebibliography.
 - Convert inline [n] citations from the report into proper \\cite{{ref_n}} commands.
 - Tables must use \\begin{{table}}...\\end{{table}} with \\caption and \\label.
-- Include \\usepackage{{amsmath,booktabs,hyperref,url,geometry}} in preamble.
+- Include \\usepackage{{graphicx,amsmath,booktabs,hyperref,url,geometry}} in preamble.
 - Author field should be "Research Team" with a placeholder institution.
 - Keep total length between 6-10 pages (IEEE two-column format).
 - Write in formal academic tone: third person, passive voice where appropriate.
