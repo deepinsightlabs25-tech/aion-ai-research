@@ -16,9 +16,7 @@ dependencies = [
     "feedparser>=6.0.0",
     "python-dotenv==1.0.1",
     "pydantic>=2.9.0",
-    "grpcio-tools>=1.66.2",
-    "streamlit>=1.50.0",
-    "deepagents>=0.5.3",
+
     "psycopg2-binary>=2.9.0",
     "sqlalchemy>=2.0.0",
     "supabase==2.29.0",
@@ -42,4 +40,7 @@ dev = [
     "ipywidgets>=8.1.8",
     "jupyter>=1.1.1",
     "pytest>=8.4.2",
+    "grpcio-tools>=1.66.2",
+    "streamlit>=1.50.0",
+    "deepagents>=0.5.3",
 ]

@@ -21,10 +21,19 @@ _tinytex_ready = False
 
 
 def _ensure_tinytex() -> None:
-    """Download TinyTeX once if not already available."""
+    """Download TinyTeX once if not already available.
+    
+    Skipped when DISABLE_TINYTEX=1 is set (e.g. on memory-constrained hosts).
+    """
     global _tinytex_ready
     if _tinytex_ready:
         return
+
+    import os
+    if os.getenv("DISABLE_TINYTEX", "").strip() in ("1", "true", "yes"):
+        logger.info("[pytinytex] Skipped — DISABLE_TINYTEX is set")
+        return
+
     try:
         import pytinytex
         try:

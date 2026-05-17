@@ -21,15 +21,6 @@ import json
 import re
 from typing import Any
 
-import matplotlib
-
-matplotlib.use("Agg")  # headless backend — must be set before pyplot import
-import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
-import matplotlib.patches as mpatches
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
-import numpy as np
-
 __all__ = ["generate_charts_for_report", "render_chart"]
 
 # ──────────────────────── Theme ────────────────────────────────────────────
@@ -46,24 +37,54 @@ _ACCENT_COLORS = [
     "#38BDF8",  # sky-blue
 ]
 
-plt.rcParams.update(
-    {
-        "figure.facecolor": _BG,
-        "axes.facecolor": "#1a1d29",
-        "axes.edgecolor": "#2d3148",
-        "axes.labelcolor": _FG,
-        "axes.grid": True,
-        "grid.color": "#2d3148",
-        "grid.alpha": 0.5,
-        "text.color": _FG,
-        "xtick.color": _FG,
-        "ytick.color": _FG,
-        "legend.facecolor": "#1a1d29",
-        "legend.edgecolor": "#2d3148",
-        "font.size": 11,
-        "figure.dpi": 96,
-    }
-)
+# ── Lazy-loaded matplotlib references (saves ~50 MB until first chart) ─────
+plt = None
+np = None
+mticker = None
+mpatches = None
+FancyBboxPatch = None
+FancyArrowPatch = None
+
+
+def _ensure_matplotlib():
+    """Import matplotlib and numpy on first use to save startup memory."""
+    global plt, np, mticker, mpatches, FancyBboxPatch, FancyArrowPatch
+    if plt is not None:
+        return
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as _plt
+    import matplotlib.ticker as _mticker
+    import matplotlib.patches as _mpatches
+    from matplotlib.patches import FancyBboxPatch as _FBP, FancyArrowPatch as _FAP
+    import numpy as _np
+
+    plt = _plt
+    np = _np
+    mticker = _mticker
+    mpatches = _mpatches
+    FancyBboxPatch = _FBP
+    FancyArrowPatch = _FAP
+
+    plt.rcParams.update(
+        {
+            "figure.facecolor": _BG,
+            "axes.facecolor": "#1a1d29",
+            "axes.edgecolor": "#2d3148",
+            "axes.labelcolor": _FG,
+            "axes.grid": True,
+            "grid.color": "#2d3148",
+            "grid.alpha": 0.5,
+            "text.color": _FG,
+            "xtick.color": _FG,
+            "ytick.color": _FG,
+            "legend.facecolor": "#1a1d29",
+            "legend.edgecolor": "#2d3148",
+            "font.size": 11,
+            "figure.dpi": 96,
+        }
+    )
 
 
 # ──────────────────────── Low-level renderers ──────────────────────────────
@@ -536,6 +557,7 @@ def render_chart(spec: dict) -> str | None:
 
     Returns ``None`` if the spec is invalid or the chart type is unknown.
     """
+    _ensure_matplotlib()
     chart_type = spec.get("chart_type", "")
     renderer = _RENDERERS.get(chart_type)
     if renderer is None:
