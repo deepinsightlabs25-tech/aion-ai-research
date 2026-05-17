@@ -1,11 +1,58 @@
 import uuid
 import logging
+import time
+from collections import OrderedDict
 from typing import Dict, List, Any, Optional
 
 from src.db.database import VectorDBContext
 from src.lg_workflow_agent import WorkflowAgent
 
 logger = logging.getLogger(__name__)
+
+_MAX_TASKS = 20  # Maximum number of completed tasks to keep in memory
+_TASK_TTL = 3600  # Seconds to keep completed/failed tasks (1 hour)
+
+
+class _EvictingTaskStore:
+    """Bounded task store that evicts old completed/failed tasks."""
+
+    def __init__(self, max_tasks: int = _MAX_TASKS, ttl: int = _TASK_TTL):
+        self._tasks: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._max_tasks = max_tasks
+        self._ttl = ttl
+
+    def __setitem__(self, key: str, value: Dict[str, Any]) -> None:
+        value.setdefault("_created_at", time.time())
+        self._tasks[key] = value
+        self._evict()
+
+    def __getitem__(self, key: str) -> Dict[str, Any]:
+        return self._tasks[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._tasks
+
+    def get(self, key: str) -> Optional[Dict[str, Any]]:
+        return self._tasks.get(key)
+
+    def _evict(self) -> None:
+        now = time.time()
+        # Remove expired completed/failed tasks
+        expired = [
+            k for k, v in self._tasks.items()
+            if v.get("status") in ("completed", "failed")
+            and now - v.get("_created_at", now) > self._ttl
+        ]
+        for k in expired:
+            del self._tasks[k]
+        # If still over limit, drop oldest completed/failed tasks
+        while len(self._tasks) > self._max_tasks:
+            for k, v in self._tasks.items():
+                if v.get("status") in ("completed", "failed"):
+                    del self._tasks[k]
+                    break
+            else:
+                break
 
 
 class ResearchPipeline:
@@ -28,7 +75,7 @@ class ResearchPipeline:
     ):
         self.db = db or VectorDBContext()
         self.agent = agent or WorkflowAgent(db=self.db)
-        self._tasks: Dict[str, Dict[str, Any]] = {}
+        self._tasks = _EvictingTaskStore()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -117,7 +164,6 @@ class ResearchPipeline:
         Designed to be scheduled with ``asyncio.create_task()`` or as a
         FastAPI background task on an ``async def`` route.
         """
-        import time
         pipeline_start = time.time()
 
         task = self._tasks.get(task_id)
