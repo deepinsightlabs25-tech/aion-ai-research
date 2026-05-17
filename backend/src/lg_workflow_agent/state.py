@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from langgraph.graph.message import add_messages
 
-QueryType = Literal["blog", "comparative", "deep_research", "summary"]
+QueryType = Literal["blog", "comparative", "deep_research", "summary", "ambiguous"]
 
 
 class WorkflowState(TypedDict, total=False):
@@ -19,6 +19,8 @@ class WorkflowState(TypedDict, total=False):
     # Classification
     query_type: QueryType
     classification_rationale: str
+    ambiguous_reason: str
+    is_ambiguous: bool
 
     # Task decomposition
     subtasks: list[dict[str, Any]]              # [{id, role, task, status}]

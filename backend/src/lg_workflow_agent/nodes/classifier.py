@@ -23,15 +23,38 @@ def create_node_classifier(llm, db):
         parsed = safe_json_load(getattr(response, "content", "") or "")
 
         qtype = parsed.get("query_type", "summary")
-        if qtype not in ROLES_BY_TYPE:
-            qtype = "summary"
+        ambiguous_reason = (parsed.get("ambiguous_reason") or "").strip()
 
-        out = {
-            "query_type": qtype,
-            "classification_rationale": parsed.get("rationale", ""),
-        }
+        # Accept "ambiguous" as a valid terminal classification; otherwise
+        # require it to be a known research type.
+        if qtype == "ambiguous":
+            if not ambiguous_reason:
+                ambiguous_reason = (
+                    "The query is too vague or unclear to produce a focused "
+                    "research result. Please rephrase with a specific topic, "
+                    "scope, and the kind of output you want (e.g. summary, "
+                    "comparison, or deep-research report)."
+                )
+            out = {
+                "query_type": "ambiguous",
+                "is_ambiguous": True,
+                "classification_rationale": parsed.get("rationale", "") or ambiguous_reason,
+                "ambiguous_reason": ambiguous_reason,
+            }
+        else:
+            if qtype not in ROLES_BY_TYPE:
+                qtype = "summary"
+            out = {
+                "query_type": qtype,
+                "is_ambiguous": False,
+                "classification_rationale": parsed.get("rationale", ""),
+                "ambiguous_reason": "",
+            }
+
         persist(db, state.get("task_id", ""), "classify", out)
-        logger.info(f"[classifier] type={qtype} | {time.time() - t0:.1f}s")
+        logger.info(
+            f"[classifier] type={out['query_type']} ambiguous={out['is_ambiguous']} | {time.time() - t0:.1f}s"
+        )
         return out
 
     return node_classifier

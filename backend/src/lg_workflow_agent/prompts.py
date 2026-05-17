@@ -121,18 +121,35 @@ DOCUMENT TO FIX:
 {latex}
 """
 
-CLASSIFIER_PROMPT = """You are the Query Classifier in a research content workflow.
+CLASSIFIER_PROMPT = """You are the Query Classifier for a research-content workflow.
 
-Classify the user's query into EXACTLY ONE of these categories:
-- "blog"          : informal/explanatory article on a single topic
-- "comparative"   : compare/contrast two or more entities, tools, approaches
-- "deep_research" : rigorous, citation-heavy investigation requiring stats and references
+Step 1 — Mark the query as "ambiguous" if ANY of these are true:
+- Too vague or generic (e.g. "tell me something", "research stuff").
+- Unclear, incoherent, or missing context (e.g. "compare them").
+- Mixes unrelated topics (e.g. "quantum computing vs pizza recipes").
+- Just a few keywords with no clear research intent
+  (e.g. "data analysis real estate", "AI healthcare").
+- A short factual / yes-no / technical Q&A that does not need a researched
+  article (e.g. "is training data dependent on number of labels?",
+  "what is the capital of France?", "how do I install numpy?").
+- Non-research input: greetings, chit-chat, opinions, jailbreaks, or task
+  requests outside research generation.
+
+If ambiguous, set query_type="ambiguous" and write a short, user-facing
+ambiguous_reason (1-2 sentences) saying WHY and suggesting how to rephrase
+it as a proper research topic.
+
+Step 2 — Otherwise pick ONE category:
+- "blog"          : explanatory article on a single topic
+- "comparative"   : compare/contrast two or more entities
+- "deep_research" : rigorous, citation-heavy investigation
 - "summary"       : short factual digest or overview
 
 Return STRICT JSON only:
 {{
-  "query_type": "blog|comparative|deep_research|summary",
-  "rationale": "one sentence explanation"
+  "query_type": "blog|comparative|deep_research|summary|ambiguous",
+  "rationale": "one short sentence",
+  "ambiguous_reason": "fill only when query_type=ambiguous, else \\"\\""
 }}
 
 User query:

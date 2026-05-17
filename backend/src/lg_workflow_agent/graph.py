@@ -29,6 +29,13 @@ SUBAGENT_NODE_NAMES = [
 ]
 
 
+def _route_after_classifier(state: WorkflowState) -> str:
+    """Skip the entire research pipeline when the query is ambiguous."""
+    if state.get("is_ambiguous") or state.get("query_type") == "ambiguous":
+        return "ambiguous"
+    return "continue"
+
+
 class WorkflowGraphBuilder:
     """Builds the research-content-generation LangGraph workflow."""
 
@@ -58,9 +65,13 @@ class WorkflowGraphBuilder:
         wf.add_node("paper_writer", create_node_paper_writer(self.llm, self.db))
         wf.add_node("cleanup", create_node_cleanup(self.db))
 
-        # Linear front: START -> classify -> task_gen -> fan-out
+        # Linear front: START -> classify -> (ambiguous? cleanup : task_gen) -> fan-out
         wf.add_edge(START, "classifier")
-        wf.add_edge("classifier", "task_generator")
+        wf.add_conditional_edges(
+            "classifier",
+            _route_after_classifier,
+            {"ambiguous": "cleanup", "continue": "task_generator"},
+        )
 
         # Dynamic fan-out via Send to whichever role nodes are needed.
         wf.add_conditional_edges(
