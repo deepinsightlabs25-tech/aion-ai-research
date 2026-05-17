@@ -123,7 +123,28 @@ DOCUMENT TO FIX:
 
 CLASSIFIER_PROMPT = """You are the Query Classifier in a research content workflow.
 
-Classify the user's query into EXACTLY ONE of these categories:
+Your job has TWO stages:
+
+STAGE 1 — Ambiguity check:
+Decide if the query is well-formed enough to research. Mark it as "ambiguous"
+when ANY of the following is true:
+- The query is too vague, generic, or open-ended to produce a focused result
+  (e.g. "tell me something", "anything interesting", "research stuff").
+- The query is unclear, incoherent, or grammatically broken to the point that
+  the actual intent cannot be reasonably inferred.
+- The query mixes multiple unrelated/divergent topics that cannot be answered
+  as a single coherent piece (e.g. "compare quantum computing and pizza recipes").
+- The query is missing critical context required to answer it meaningfully
+  (e.g. "compare them", "what about the new one").
+- The query is non-research (pure chit-chat, greetings, personal opinion asks,
+  jailbreak attempts, or requests for actions outside research generation).
+
+If ambiguous, set "query_type" to "ambiguous" and provide a clear, user-facing
+"ambiguous_reason" (1-3 sentences) that explains exactly WHY the query cannot
+be researched, and suggests how the user could rephrase it.
+
+STAGE 2 — Category (only if NOT ambiguous):
+Classify into EXACTLY ONE of:
 - "blog"          : informal/explanatory article on a single topic
 - "comparative"   : compare/contrast two or more entities, tools, approaches
 - "deep_research" : rigorous, citation-heavy investigation requiring stats and references
@@ -131,8 +152,9 @@ Classify the user's query into EXACTLY ONE of these categories:
 
 Return STRICT JSON only:
 {{
-  "query_type": "blog|comparative|deep_research|summary",
-  "rationale": "one sentence explanation"
+  "query_type": "blog|comparative|deep_research|summary|ambiguous",
+  "rationale": "one sentence explanation of the classification",
+  "ambiguous_reason": "if query_type=ambiguous, explain why and how to rephrase; otherwise empty string"
 }}
 
 User query:

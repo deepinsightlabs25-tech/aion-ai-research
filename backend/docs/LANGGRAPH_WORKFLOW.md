@@ -10,7 +10,7 @@ Complete architecture reference for the **LangGraph multi-agent research workflo
 flowchart TD
     START(["▶ START"])
 
-    CLASSIFY["🏷️ Classifier<br/><i>Determines query type</i>"]
+    CLASSIFY{{"🏷️ Classifier<br/><i>Determines query type<br/>OR flags as ambiguous</i>"}}
     TASKGEN["📋 Task Generator<br/><i>Decomposes query into<br/>role-tagged subtasks</i>"]
 
     subgraph FAN_OUT ["⚡ Parallel Fan-Out via Send()"]
@@ -30,7 +30,8 @@ flowchart TD
     FINISH(["⏹ END"])
 
     START --> CLASSIFY
-    CLASSIFY --> TASKGEN
+    CLASSIFY -->|"ambiguous<br/>(vague / unclear / divergent)"| CLEANUP
+    CLASSIFY -->|"valid research query"| TASKGEN
     TASKGEN -->|"Send(role_agent, payload)"| DC
     TASKGEN -->|"Send(role_agent, payload)"| STATS
     TASKGEN -->|"Send(role_agent, payload)"| CITE
@@ -70,11 +71,13 @@ flowchart LR
     C -->|"blog"| BL["web_research<br/>latest_news_collection"]
     C -->|"comparative"| CO["web_research<br/>latest_news_collection"]
     C -->|"summary"| SU["web_research<br/>latest_news_collection"]
+    C -->|"ambiguous"| AM["⛔ No sub-agents<br/>Skip straight to Cleanup<br/>with rejection report"]
 
     style DR fill:#e8f5e9,stroke:#388e3c
     style BL fill:#e3f2fd,stroke:#1976d2
     style CO fill:#fff3e0,stroke:#f57c00
     style SU fill:#fce4ec,stroke:#c62828
+    style AM fill:#ffebee,stroke:#c62828
 ```
 
 | Query Type | Activated Sub-Agents | Use Case |
@@ -83,6 +86,7 @@ flowchart LR
 | `blog` | `web_research`, `latest_news_collection` | Informal/explanatory article |
 | `comparative` | `web_research`, `latest_news_collection` | Compare/contrast entities or tools |
 | `summary` | `web_research`, `latest_news_collection` | Short factual digest or overview |
+| `ambiguous` | _none_ | Vague, unclear, or divergent query — short-circuits to Cleanup which emits an explanation of why no result was produced |
 
 ---
 

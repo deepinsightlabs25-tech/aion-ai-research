@@ -187,14 +187,15 @@ flowchart LR
     TASK --> ASYNC["asyncio.create_task()<br/>run_task_streaming()"]
 
     ASYNC --> N1["classifier"]
-    N1 --> N2["task_generator"]
+    N1 -->|"ambiguous"| N9["cleanup<br/>(emit rejection report)"]
+    N1 -->|"valid"| N2["task_generator"]
     N2 --> N3["sub-agents (parallel Send)"]
     N3 --> N4["aggregator"]
     N4 --> N5["writer"]
     N5 --> N6["validator (↻ up to 2x)"]
     N6 --> N7["report_finalizer<br/>(charts/images)"]
     N7 --> N8["paper_writer<br/>(deep_research → LaTeX/PDF)"]
-    N8 --> N9["cleanup"]
+    N8 --> N9
 
     N9 --> SAVE["💾 save_report()<br/>Qdrant vectorised"]
     SAVE --> DONE["✅ status: completed"]
