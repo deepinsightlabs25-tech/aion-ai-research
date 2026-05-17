@@ -1,6 +1,6 @@
-# AI Report Gen v0.2.1
+# Aion AI Research — Backend
 
-An AI-powered research agent built with FastAPI, LangChain / LangGraph, and Qdrant. The system accepts user queries, checks a vector-based RAG cache for prior results, and — on a cache miss — fires an async streaming Gemini ReAct agent that emits step-by-step progress updates as it gathers data from multiple external sources.
+A FastAPI + LangGraph multi-agent research backend. The system accepts user queries, checks a Qdrant RAG cache for prior results, and — on a cache miss — runs an async streaming **LangGraph workflow** that fans out to specialized sub-agents (data collection, statistics, citation, web research, latest news), aggregates their findings, drafts a Markdown report, validates references, finalizes charts/images, and (for deep-research queries) compiles a LaTeX research paper to PDF.
 
 ---
 
@@ -8,17 +8,25 @@ An AI-powered research agent built with FastAPI, LangChain / LangGraph, and Qdra
 
 | Feature | Description |
 |---|---|
-| **Streaming Agent Progress** | `POST /query` returns immediately with a `task_id`. Poll `GET /status` to see each agent step (`model`, `tools`, …) appear in real time via the `steps[]` array. |
-| **RAG Pre-caching** | Semantic similarity search (cosine >= 0.85) in Qdrant avoids redundant inference for previously researched topics. |
-| **Multi-Source Fetcher** | Custom `fetch_trends` tool queries Hackernews, GitHub, Reddit, YouTube, Arxiv, RSS, Google News, and LinkedIn via an external MCP. |
-| **LangChain + Gemini** | `gemini-2.5-flash` powers a ReAct graph; both sync `invoke()` and async `astream()` are supported. |
-| **FastAPI Async** | `/query` is an `async def` route; streaming tasks run as `asyncio.create_task()` on the same event loop — no thread-pool blocking. |
+| **Multi-Agent Workflow** | LangGraph state machine: `classifier → task_generator → parallel sub-agents (Send fan-out) → aggregator → writer → validator ↻ → report_finalizer → paper_writer → cleanup`. |
+| **Streaming Progress** | `POST /query` returns immediately with a `task_id`. Poll `GET /status` to see each LangGraph node completion (`classifier`, `aggregator`, `writer`, …) stream into `steps[]` in real time. |
+| **RAG Pre-caching** | Semantic similarity search (cosine ≥ 0.85) in Qdrant avoids redundant inference for previously researched topics. |
+| **Direct Source Fetchers** | Native-async tools (`fetch_hackernews`, `fetch_youtube`, `fetch_github`, `fetch_linkedin`, `fetch_reddit`, `fetch_rss`, `fetch_google_news`, `fetch_podcasts`, `fetch_arxiv`) call source APIs directly — no external MCP hop. |
+| **Validator with Rewrite Loop** | Each reference is checked for URL reachability **and** LLM-scored relevance. Up to 2 rewrite passes; otherwise broken refs are stripped. |
+| **Chart + Paper Generation** | `report_finalizer` produces 12+ visualization types (bar, line, heatmap, flowchart, architecture, equation, …); `paper_writer` converts deep-research reports to a LaTeX academic paper compiled to PDF. |
+| **Supabase Postgres** | Per-user task tracking, history, and step persistence alongside the Qdrant vector cache. |
+| **Gemini 2.5 Flash** | `gemini-2.5-flash` powers all sub-agents, the classifier, writer, validator, and paper generator. |
 
 ---
 
-## Documentation and Architecture
-Full system design, component diagrams, request lifecycle, and streaming flow:  
-**[Architecture Documentation](docs/architecture.md)**
+## Documentation
+
+| Doc | Contents |
+|---|---|
+| **[docs/architecture.md](docs/architecture.md)** | High-level system design, request lifecycle, component map, streaming flow. |
+| **[docs/LANGGRAPH_WORKFLOW.md](docs/LANGGRAPH_WORKFLOW.md)** | Full reference for the multi-agent LangGraph workflow — graph topology, sub-agents, state schema, validation loop, paper generation. |
+| **[docs/ENHANCED_VISUALIZATIONS.md](docs/ENHANCED_VISUALIZATIONS.md)** | Catalog of all chart/diagram types produced by `report_finalizer`. |
+| **[docs/USAGE_GUIDE.md](docs/USAGE_GUIDE.md)** | End-to-end usage examples for the HTTP API. |
 
 ---
 
@@ -150,28 +158,43 @@ Liveness check — returns `{"status": "ok"}`.
 ## Project Structure
 
 ```text
-ai-report-gen/
+backend/
 ├── pyproject.toml              # uv project config & dependencies
-├── run.py                      # Entry point
+├── run.py                      # Entry point (uvicorn launcher)
 ├── .env / .env.example
 ├── docs/
-│   └── architecture.md         # Full architecture details
+│   ├── architecture.md         # High-level system architecture
+│   ├── LANGGRAPH_WORKFLOW.md   # Multi-agent workflow reference
+│   ├── ENHANCED_VISUALIZATIONS.md
+│   └── USAGE_GUIDE.md
 ├── tests/
-│   ├── test_agent.py           # Agent unit tests
+│   ├── test_agent.py           # WorkflowAgent unit tests
 │   ├── test_pipeline.py        # Pipeline unit tests
 │   ├── test_streaming.py       # Streaming integration tests
+│   ├── test_sources.py         # Source fetcher tests
+│   ├── test_enhanced_visualizations.py
 │   ├── streamlit_app.py        # Testing dashboard
 │   └── component_checks.ipynb  # Interactive notebook
 └── src/
-    ├── agent/
-    │   ├── core.py             # ResearchAgent — invoke() + astream()
-    │   ├── prompts.py          # ReAct system prompt
-    │   └── tools.py            # fetch_trends MCP tool
     ├── api/
-    │   ├── models.py           # Pydantic schemas
-    │   └── server.py           # FastAPI routes
+    │   ├── auth.py             # Google OAuth bearer-token validation
+    │   ├── models.py           # Pydantic request/response schemas
+    │   └── server.py           # FastAPI routes (/query, /status, /report, …)
     ├── pipeline/
-    │   └── orchestrator.py     # ResearchPipeline orchestration
+    │   └── orchestrator.py     # ResearchPipeline — cache + task store + astream loop
+    ├── lg_workflow_agent/
+    │   ├── agent.py            # WorkflowAgent — build / invoke / astream entry point
+    │   ├── graph.py            # LangGraph StateGraph construction
+    │   ├── nodes.py            # Node factories (classifier, writer, validator, finalizer, paper_writer, …)
+    │   ├── sub_agents.py       # create_agent instances per role + runner closures
+    │   ├── state.py            # WorkflowState TypedDict + reducers
+    │   ├── prompts.py          # All LLM prompt templates
+    │   ├── tools.py            # Source tools (@tool) + URL validation utilities
+    │   ├── chart_generator.py  # 12+ matplotlib chart renderers → base64 PNG
+    │   ├── paper_formatter.py  # LaTeX cleanup, validation, PDF compilation
+    │   └── sources/            # Direct async fetchers (arxiv, github, reddit, …)
     └── db/
-        └── database.py         # Qdrant persistence layer
+        ├── database.py         # Qdrant vector cache
+        ├── postgres.py         # Supabase Postgres task tracking
+        └── supabase_client.py  # Supabase REST client wrapper
 ```

@@ -43,14 +43,14 @@ const Header = ({ user, onGoogleCredential, onLogout }) => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            <div className="flex items-center gap-2 text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-3.5 py-1.5">
+            {/* <div className="flex items-center gap-2 text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-3.5 py-1.5">
               <span className="animate-pulse">
                 <DotPulseIcon />
               </span>
               <span className="font-mono text-[11px] font-medium tracking-wider uppercase">
                 Live AI
               </span>
-            </div>
+            </div> */}
 
             {user ? (
               <div className="flex items-center gap-2">

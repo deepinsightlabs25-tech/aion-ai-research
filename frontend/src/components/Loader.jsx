@@ -18,6 +18,24 @@ const MESSAGES = [
   'Almost ready — finalizing your paper…',
 ]
 
+const FOOTNOTES = [
+  'Querying sources for relevant facts…',
+  'Examining best practices and trends…',
+  'Checking the latest research findings…',
+  'Organizing data into a coherent outline…',
+  'Cross-referencing information across sources…',
+  'Evaluating supporting evidence for accuracy…',
+  'Spotting patterns and insights in the research…',
+  'Ensuring results are tailored to your topic…',
+  'Clarifying key concepts and definitions…',
+  'Reviewing structure for readability…',
+  'Polishing language for precision and flow…',
+  'Refreshing the summary with the latest details…',
+  'Scanning for supporting examples and citations…',
+  'Weaving insights into a strong narrative…',
+  'Fine-tuning the final research output…',
+]
+
 // ─── Skeleton line widths (visual variety) ────────────────────────────────────
 const SKELETON_LINES = [
   ['w-2/5', 'mb-6'], // h2 heading
@@ -96,6 +114,7 @@ function activityLabelsFromStep(rawStep) {
 
 const Loader = ({ statusHint, steps = [] }) => {
   const [msgIndex, setMsgIndex] = useState(0)
+  const [footnoteIndex, setFootnoteIndex] = useState(0)
   const stepList = Array.isArray(steps) ? steps : []
   const latestStep = stepList.length > 0 ? stepList[stepList.length - 1] : null
   const latestLabels = latestStep ? activityLabelsFromStep(latestStep.step) : null
@@ -105,6 +124,13 @@ const Loader = ({ statusHint, steps = [] }) => {
     const interval = setInterval(() => {
       setMsgIndex((i) => (i + 1) % MESSAGES.length)
     }, 3500)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFootnoteIndex(Math.floor(Math.random() * FOOTNOTES.length))
+    }, 2500)
     return () => clearInterval(interval)
   }, [])
 
@@ -140,7 +166,7 @@ const Loader = ({ statusHint, steps = [] }) => {
                   </p>
                 )}
                 <p className="processing-footnote text-ink-500 text-xs leading-relaxed inline-flex flex-wrap items-baseline gap-0">
-                  <span>Deep research can take several minutes</span>
+                  <span>{FOOTNOTES[footnoteIndex]}</span>
                   <span className="processing-footnote__dots font-mono tracking-tight" aria-hidden>
                     <span>.</span>
                     <span>.</span>

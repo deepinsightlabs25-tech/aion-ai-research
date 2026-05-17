@@ -4,9 +4,12 @@
  * Provides copy-to-clipboard, PDF download, and back navigation.
  */
 
-import React, { useState, useRef } from 'react'
+import React, { useMemo, useState, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import ResearchPaperView from './ResearchPaperView'
+import { normalizeResearchPaper, pdfBase64ToBlobUrl } from '../lib/latexPaper'
+import { downloadBlob, fetchResearchPaper } from '../services/api'
 
 // react-markdown v9 strips `data:` URIs from image src by default, which
 // removes the inline base64 charts/images produced by the report_finalizer
@@ -75,20 +78,29 @@ const ActionButton = ({ onClick, icon, label, variant = 'ghost' }) => (
 )
 
 // ─── Component ────────────────────────────────────────────────────────────────
-const ResearchResult = ({ content, topic, taskId, steps = [], onBack }) => {
+const ResearchResult = ({ content, researchPaper, topic, taskId, steps = [], onBack }) => {
   const [copied, setCopied] = useState(false)
+  const [savingPdf, setSavingPdf] = useState(false)
+  const [pdfMessage, setPdfMessage] = useState('')
   const paperRef = useRef(null)
+
+  const paperPayload = useMemo(
+    () => normalizeResearchPaper(researchPaper, content),
+    [researchPaper, content],
+  )
+  const showLatexPaper = Boolean(paperPayload?.latex)
 
   // ── Copy to clipboard ────────────────────────────────────────
   const handleCopy = async () => {
+    const copyText = showLatexPaper ? (paperPayload.latex || content) : content
     try {
-      await navigator.clipboard.writeText(content)
+      await navigator.clipboard.writeText(copyText)
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
     } catch {
       // Fallback for older browsers
       const el = document.createElement('textarea')
-      el.value = content
+      el.value = copyText
       document.body.appendChild(el)
       el.select()
       document.execCommand('copy')
@@ -98,29 +110,100 @@ const ResearchResult = ({ content, topic, taskId, steps = [], onBack }) => {
     }
   }
 
-  // ── Download as .md file ─
-  const handleDownloadMd = () => {
-    const fallbackName = `${topic.slice(0, 50).replace(/[^a-z0-9]/gi, '_').toLowerCase()}_research.md`
+  const handleDownload = () => {
+    const baseName = topic.slice(0, 50).replace(/[^a-z0-9]/gi, '_').toLowerCase()
+    if (paperPayload?.pdfBase64) {
+      const url = pdfBase64ToBlobUrl(paperPayload.pdfBase64)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${baseName}_research.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+    if (showLatexPaper) {
+      const blob = new Blob([paperPayload.latex], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${baseName}_research.tex`
+      a.click()
+      URL.revokeObjectURL(url)
+      return
+    }
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = fallbackName
+    a.download = `${baseName}_research.md`
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  // ── Print / Save as PDF: only #research-pdf-root is visible (@media print in index.css)
-  const handlePrint = () => {
-    window.print()
+  const downloadPdfFromBase64 = (base64, filename) => {
+    const url = pdfBase64ToBlobUrl(base64)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const showPdfStatus = (message) => {
+    setPdfMessage(message)
+    setTimeout(() => setPdfMessage(''), 6000)
+  }
+
+  const handleSavePdf = async () => {
+    const baseName = topic.slice(0, 50).replace(/[^a-z0-9]/gi, '_').toLowerCase()
+    const fallbackFilename = `${baseName}_research.pdf`
+
+    setPdfMessage('')
+    setSavingPdf(true)
+
+    try {
+      if (taskId) {
+        const result = await fetchResearchPaper(taskId)
+
+        if (result.kind === 'pdf') {
+          downloadBlob(result.blob, result.filename || fallbackFilename)
+          showPdfStatus('PDF downloaded.')
+          return
+        }
+
+        if (result.latex) {
+          const texBlob = new Blob([result.latex], { type: 'text/plain;charset=utf-8' })
+          downloadBlob(texBlob, `${baseName}_research.tex`)
+        }
+        showPdfStatus(
+          'PDF is not available for this task (LaTeX compile failed). Downloaded .tex source instead.',
+        )
+        return
+      }
+
+      if (paperPayload?.pdfBase64) {
+        downloadPdfFromBase64(paperPayload.pdfBase64, fallbackFilename)
+        showPdfStatus('PDF downloaded.')
+        return
+      }
+
+      window.print()
+      showPdfStatus('Opened print dialog (no compiled PDF for this result).')
+    } catch (err) {
+      showPdfStatus(err?.message || 'Failed to download PDF.')
+    } finally {
+      setSavingPdf(false)
+    }
   }
 
   // ── Word count ───────────────────────────────────────────────
-  const wordCount = content.trim().split(/\s+/).length
+  const wordCount = showLatexPaper
+    ? (paperPayload.metadata?.word_count || content.trim().split(/\s+/).length)
+    : content.trim().split(/\s+/).length
   const completedStepCount = Array.isArray(steps) ? steps.length : 0
 
   return (
-    <section className="w-full max-w-3xl mx-auto animate-fade-up">
+    <section className={`w-full mx-auto animate-fade-up ${showLatexPaper ? 'max-w-7xl' : 'max-w-7xl'}`}>
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <button
           onClick={onBack}
@@ -140,14 +223,20 @@ const ResearchResult = ({ content, topic, taskId, steps = [], onBack }) => {
             variant={copied ? 'primary' : 'ghost'}
           />
           <ActionButton
-            onClick={handleDownloadMd}
+            onClick={handleDownload}
             icon={<DownloadIcon />}
-            label="Download .md"
+            label={
+              paperPayload?.pdfBase64
+                ? 'Download PDF'
+                : showLatexPaper
+                  ? 'Download .tex'
+                  : 'Download .md'
+            }
           />
           <ActionButton
-            onClick={handlePrint}
+            onClick={handleSavePdf}
             icon={<PrintIcon />}
-            label="Save PDF"
+            label={savingPdf ? 'Saving…' : 'Save PDF'}
           />
         </div>
       </div>
@@ -160,7 +249,7 @@ const ResearchResult = ({ content, topic, taskId, steps = [], onBack }) => {
         <div className="print:hidden px-8 pt-8 pb-6 border-b border-ink-200">
           <div className="flex items-center gap-2 text-ink-500 font-mono text-[11px] uppercase tracking-widest mb-3">
             <span className="w-4 h-px bg-brand-500/30" />
-            Research Paper
+            {showLatexPaper ? 'LaTeX Research Paper' : 'Research Paper'}
             <span className="w-4 h-px bg-brand-500/30" />
           </div>
           <h2 className="font-display text-2xl font-bold text-ink-900 leading-snug">
@@ -187,15 +276,27 @@ const ResearchResult = ({ content, topic, taskId, steps = [], onBack }) => {
           </div>
         </div>
 
+        {pdfMessage ? (
+          <p className="print:hidden px-8 pt-4 text-xs font-mono text-ink-600">{pdfMessage}</p>
+        ) : null}
+
         <div className="px-8 py-8">
-          <div className="research-prose">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              urlTransform={safeUrlTransform}
-            >
-              {content}
-            </ReactMarkdown>
-          </div>
+          {showLatexPaper ? (
+            <ResearchPaperView
+              latex={paperPayload.latex}
+              pdfBase64={paperPayload.pdfBase64}
+              metadata={paperPayload.metadata}
+            />
+          ) : (
+            <div className="research-prose">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                urlTransform={safeUrlTransform}
+              >
+                {content}
+              </ReactMarkdown>
+            </div>
+          )}
         </div>
 
         <div className="print:hidden px-8 py-5 border-t border-ink-200 flex items-center justify-between">

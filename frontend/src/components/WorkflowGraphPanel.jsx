@@ -78,9 +78,9 @@ function WorkflowGraphPanel({ steps = [], className = '' }) {
       aria-label={`Workflow graph. Current step: ${activeLabel}`}
     >
       <div className="px-4 py-3 border-b border-ink-100 bg-gradient-to-r from-brand-50/90 to-white">
-        <p className="text-[11px] uppercase tracking-wider font-mono text-ink-500">
+        {/* <p className="text-[11px] uppercase tracking-wider font-mono text-ink-500">
           LangGraph · Live
-        </p>
+        </p> */}
         <p className="text-sm font-semibold text-ink-900 mt-0.5 truncate" title={activeLabel}>
           {activeId ? (
             <>
@@ -250,10 +250,10 @@ function WorkflowGraphPanel({ steps = [], className = '' }) {
           </g>
         </svg>
 
-        <p className="mt-3 text-[11px] text-ink-500 leading-relaxed font-mono border-t border-ink-100 pt-3">
+        {/* <p className="mt-3 text-[11px] text-ink-500 leading-relaxed font-mono border-t border-ink-100 pt-3">
           Only steps that have finished or are running are shown; the rest stay hidden until the
           workflow reaches them.
-        </p>
+        </p> */}
       </div>
     </aside>
   )
