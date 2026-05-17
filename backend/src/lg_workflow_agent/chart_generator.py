@@ -24,17 +24,27 @@ from typing import Any
 __all__ = ["generate_charts_for_report", "render_chart"]
 
 # ──────────────────────── Theme ────────────────────────────────────────────
-_BG = "#0f1117"
-_FG = "#e0e0e0"
+# Publication-quality light theme (IEEE/Elsevier-style).
+_BG = "#ffffff"        # figure & axes background
+_FG = "#1a1a1a"        # primary text/ink
+_MUTED = "#4a4a4a"     # secondary text
+_RULE = "#b8b8b8"      # axis spines / borders
+_GRID = "#dcdcdc"      # gridlines
+_HEADER_BG = "#e9eef5" # table header band (very light blue-gray)
+_BAND_BG = "#f5f7fa"   # table zebra band
+_CARD_BG = "#ffffff"   # stat-card fill
+_CARD_EDGE = "#c8ced8" # stat-card border
+
+# Colorblind-safe muted palette (based on Tableau 10 / Color Universal Design).
 _ACCENT_COLORS = [
-    "#6C63FF",  # vivid indigo
-    "#00D4AA",  # teal
-    "#FF6B6B",  # coral
-    "#FFD93D",  # gold
-    "#4ECDC4",  # cyan
-    "#FF8C42",  # orange
-    "#A855F7",  # purple
-    "#38BDF8",  # sky-blue
+    "#3B5B8C",  # navy blue
+    "#A24A4A",  # muted brick red
+    "#5B7F4F",  # sage green
+    "#B07A2A",  # ochre / dark gold
+    "#6B5B95",  # dusty purple
+    "#4F8593",  # slate teal
+    "#8A6F47",  # warm taupe
+    "#7A7A7A",  # neutral gray
 ]
 
 # ── Lazy-loaded matplotlib references (saves ~50 MB until first chart) ─────
@@ -70,19 +80,42 @@ def _ensure_matplotlib():
     plt.rcParams.update(
         {
             "figure.facecolor": _BG,
-            "axes.facecolor": "#1a1d29",
-            "axes.edgecolor": "#2d3148",
+            "axes.facecolor": _BG,
+            "axes.edgecolor": _RULE,
+            "axes.linewidth": 0.8,
             "axes.labelcolor": _FG,
+            "axes.titlesize": 12,
+            "axes.titleweight": "bold",
+            "axes.titlepad": 10,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
             "axes.grid": True,
-            "grid.color": "#2d3148",
-            "grid.alpha": 0.5,
+            "axes.axisbelow": True,
+            "grid.color": _GRID,
+            "grid.linewidth": 0.6,
+            "grid.alpha": 1.0,
+            "grid.linestyle": "-",
             "text.color": _FG,
             "xtick.color": _FG,
             "ytick.color": _FG,
-            "legend.facecolor": "#1a1d29",
-            "legend.edgecolor": "#2d3148",
-            "font.size": 11,
-            "figure.dpi": 96,
+            "xtick.direction": "out",
+            "ytick.direction": "out",
+            "xtick.major.size": 3,
+            "ytick.major.size": 3,
+            "xtick.major.width": 0.8,
+            "ytick.major.width": 0.8,
+            "legend.facecolor": _BG,
+            "legend.edgecolor": _RULE,
+            "legend.frameon": True,
+            "legend.framealpha": 1.0,
+            "legend.fontsize": 9,
+            "font.family": "serif",
+            "font.serif": ["DejaVu Serif", "Times New Roman", "Liberation Serif", "serif"],
+            "font.size": 10,
+            "figure.dpi": 150,
+            "savefig.dpi": 200,
+            "savefig.bbox": "tight",
+            "savefig.facecolor": _BG,
         }
     )
 
@@ -112,27 +145,33 @@ def _make_bar_chart(spec: dict) -> str:
     if not labels or not values:
         return ""
 
-    fig, ax = plt.subplots(figsize=(8, max(4, len(labels) * 0.5) if horizontal else 5))
-    colors = [_ACCENT_COLORS[i % len(_ACCENT_COLORS)] for i in range(len(labels))]
+    fig, ax = plt.subplots(figsize=(7.2, max(3.6, len(labels) * 0.45) if horizontal else 4.4))
+    # Single muted colour for single-series bar charts looks more academic
+    # than rainbow per-bar colouring.
+    primary = _ACCENT_COLORS[0]
 
     if horizontal:
         y_pos = np.arange(len(labels))
-        ax.barh(y_pos, values, color=colors, height=0.6, edgecolor="none")
+        ax.barh(y_pos, values, color=primary, height=0.62, edgecolor="white", linewidth=0.5)
         ax.set_yticks(y_pos)
-        ax.set_yticklabels(labels, fontsize=10)
+        ax.set_yticklabels(labels, fontsize=9)
         if xlabel:
-            ax.set_xlabel(xlabel)
+            ax.set_xlabel(xlabel, fontsize=10)
         ax.invert_yaxis()
+        ax.xaxis.grid(True)
+        ax.yaxis.grid(False)
     else:
         x_pos = np.arange(len(labels))
-        ax.bar(x_pos, values, color=colors, width=0.6, edgecolor="none")
+        ax.bar(x_pos, values, color=primary, width=0.62, edgecolor="white", linewidth=0.5)
         ax.set_xticks(x_pos)
-        ax.set_xticklabels(labels, fontsize=10, rotation=30, ha="right")
+        ax.set_xticklabels(labels, fontsize=9, rotation=25, ha="right")
         if ylabel:
-            ax.set_ylabel(ylabel)
+            ax.set_ylabel(ylabel, fontsize=10)
+        ax.yaxis.grid(True)
+        ax.xaxis.grid(False)
 
     if title:
-        ax.set_title(title, fontsize=14, fontweight="bold", pad=12)
+        ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
 
     fig.tight_layout()
     return _fig_to_base64(fig)
@@ -148,26 +187,32 @@ def _make_line_chart(spec: dict) -> str:
     if not series:
         return ""
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(7.2, 4.4))
+    markers = ["o", "s", "^", "D", "v", "P", "X", "*"]
+    linestyles = ["-", "--", "-.", ":"]
     for i, s in enumerate(series):
         color = _ACCENT_COLORS[i % len(_ACCENT_COLORS)]
         ax.plot(
             s.get("x", list(range(len(s.get("y", []))))),
             s.get("y", []),
-            marker="o",
+            marker=markers[i % len(markers)],
+            linestyle=linestyles[i % len(linestyles)],
             color=color,
-            linewidth=2.5,
-            markersize=6,
+            linewidth=1.6,
+            markersize=5,
+            markerfacecolor=color,
+            markeredgecolor="white",
+            markeredgewidth=0.6,
             label=s.get("name", f"Series {i + 1}"),
         )
     if len(series) > 1:
-        ax.legend()
+        ax.legend(loc="best")
     if title:
-        ax.set_title(title, fontsize=14, fontweight="bold", pad=12)
+        ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
     if xlabel:
-        ax.set_xlabel(xlabel)
+        ax.set_xlabel(xlabel, fontsize=10)
     if ylabel:
-        ax.set_ylabel(ylabel)
+        ax.set_ylabel(ylabel, fontsize=10)
     fig.tight_layout()
     return _fig_to_base64(fig)
 
@@ -181,21 +226,23 @@ def _make_pie_chart(spec: dict) -> str:
         return ""
 
     colors = [_ACCENT_COLORS[i % len(_ACCENT_COLORS)] for i in range(len(labels))]
-    fig, ax = plt.subplots(figsize=(7, 7))
+    fig, ax = plt.subplots(figsize=(6.4, 6.0))
     wedges, texts, autotexts = ax.pie(
         values,
         labels=labels,
         autopct="%1.1f%%",
         colors=colors,
         startangle=140,
-        pctdistance=0.8,
-        textprops={"color": _FG, "fontsize": 10},
+        pctdistance=0.78,
+        wedgeprops={"linewidth": 1.0, "edgecolor": "white"},
+        textprops={"color": _FG, "fontsize": 9},
     )
     for at in autotexts:
         at.set_fontsize(9)
-        at.set_color("#ffffff")
+        at.set_color("white")
+        at.set_fontweight("bold")
     if title:
-        ax.set_title(title, fontsize=14, fontweight="bold", pad=16)
+        ax.set_title(title, fontsize=12, fontweight="bold", pad=14)
     fig.tight_layout()
     return _fig_to_base64(fig)
 
@@ -225,16 +272,17 @@ def _make_comparison_table(spec: dict) -> str:
 
     # Style cells
     for (row, col), cell in table.get_celld().items():
-        cell.set_edgecolor("#2d3148")
+        cell.set_edgecolor(_RULE)
+        cell.set_linewidth(0.6)
         if row == 0:
-            cell.set_facecolor("#6C63FF")
-            cell.set_text_props(color="white", fontweight="bold")
+            cell.set_facecolor(_HEADER_BG)
+            cell.set_text_props(color=_FG, fontweight="bold")
         else:
-            cell.set_facecolor("#1a1d29" if row % 2 == 1 else "#20243a")
+            cell.set_facecolor(_BG if row % 2 == 1 else _BAND_BG)
             cell.set_text_props(color=_FG)
 
     if title:
-        ax.set_title(title, fontsize=14, fontweight="bold", pad=20, color=_FG)
+        ax.set_title(title, fontsize=12, fontweight="bold", pad=14, color=_FG)
     fig.tight_layout()
     return _fig_to_base64(fig)
 
@@ -253,27 +301,31 @@ def _make_stat_card(spec: dict) -> str:
         axes = [axes]
 
     for i, (ax, m) in enumerate(zip(axes, metrics)):
-        color = _ACCENT_COLORS[i % len(_ACCENT_COLORS)]
+        accent = _ACCENT_COLORS[i % len(_ACCENT_COLORS)]
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.axis("off")
 
-        # background card
-        rect = plt.Rectangle((0.05, 0.05), 0.9, 0.9, facecolor="#1a1d29",
-                              edgecolor=color, linewidth=2, transform=ax.transAxes,
+        # white card with thin border + accent top rule
+        rect = plt.Rectangle((0.05, 0.05), 0.9, 0.9, facecolor=_CARD_BG,
+                              edgecolor=_CARD_EDGE, linewidth=1.0, transform=ax.transAxes,
                               clip_on=False, zorder=1)
         ax.add_patch(rect)
+        top_rule = plt.Rectangle((0.05, 0.88), 0.9, 0.07, facecolor=accent,
+                                  edgecolor="none", transform=ax.transAxes,
+                                  clip_on=False, zorder=2)
+        ax.add_patch(top_rule)
 
         value_str = str(m.get("value", ""))
         unit = m.get("unit", "")
         label = m.get("label", "")
-        ax.text(0.5, 0.62, f"{value_str}{unit}", transform=ax.transAxes,
-                ha="center", va="center", fontsize=22, fontweight="bold", color=color,
-                zorder=2)
-        ax.text(0.5, 0.28, label, transform=ax.transAxes,
-                ha="center", va="center", fontsize=10, color=_FG, zorder=2)
+        ax.text(0.5, 0.55, f"{value_str}{unit}", transform=ax.transAxes,
+                ha="center", va="center", fontsize=20, fontweight="bold", color=_FG,
+                zorder=3)
+        ax.text(0.5, 0.22, label, transform=ax.transAxes,
+                ha="center", va="center", fontsize=9, color=_MUTED, zorder=3)
 
-    fig.suptitle(title, fontsize=13, fontweight="bold", color=_FG, y=0.97)
+    fig.suptitle(title, fontsize=12, fontweight="bold", color=_FG, y=0.98)
     fig.tight_layout(rect=[0, 0, 1, 0.92])
     return _fig_to_base64(fig)
 
@@ -288,15 +340,15 @@ def _make_area_chart(spec: dict) -> str:
     if not series:
         return ""
 
-    fig, ax = plt.subplots(figsize=(9, 5.5))
+    fig, ax = plt.subplots(figsize=(7.6, 4.6))
     x_data = series[0].get("x", list(range(len(series[0].get("y", [])))))
-    
+
     for i, s in enumerate(series):
         color = _ACCENT_COLORS[i % len(_ACCENT_COLORS)]
         ax.fill_between(
             x_data,
             s.get("y", []),
-            alpha=0.4,
+            alpha=0.25,
             color=color,
             label=s.get("name", f"Series {i + 1}"),
         )
@@ -304,18 +356,18 @@ def _make_area_chart(spec: dict) -> str:
             x_data,
             s.get("y", []),
             color=color,
-            linewidth=2.5,
+            linewidth=1.6,
             marker="o",
-            markersize=5,
+            markersize=4,
         )
-    
-    ax.legend(loc="upper left", framealpha=0.95)
+
+    ax.legend(loc="best", framealpha=1.0)
     if title:
-        ax.set_title(title, fontsize=14, fontweight="bold", pad=12)
+        ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
     if xlabel:
-        ax.set_xlabel(xlabel)
+        ax.set_xlabel(xlabel, fontsize=10)
     if ylabel:
-        ax.set_ylabel(ylabel)
+        ax.set_ylabel(ylabel, fontsize=10)
     fig.tight_layout()
     return _fig_to_base64(fig)
 
@@ -326,7 +378,7 @@ def _make_heatmap(spec: dict) -> str:
     labels_x = spec.get("labels_x", [])
     labels_y = spec.get("labels_y", [])
     title = spec.get("title", "")
-    cmap_name = spec.get("colormap", "viridis")
+    cmap_name = spec.get("colormap", "Blues")
 
     if not data or not labels_x or not labels_y:
         return ""
@@ -359,7 +411,7 @@ def _make_flowchart(spec: dict) -> str:
         return ""
 
     n_steps = len(steps)
-    fig, ax = plt.subplots(figsize=(10, max(6, n_steps * 1.2)))
+    fig, ax = plt.subplots(figsize=(8.0, max(5, n_steps * 1.1)))
     ax.set_xlim(-1, 3)
     ax.set_ylim(-0.5, n_steps)
     ax.axis("off")
@@ -367,38 +419,35 @@ def _make_flowchart(spec: dict) -> str:
     for i, step in enumerate(steps):
         y_pos = n_steps - 1 - i
         text = step.get("text", f"Step {i+1}")
-        color = step.get("color", _ACCENT_COLORS[i % len(_ACCENT_COLORS)])
-        
-        # Draw box
+        accent = step.get("color", _ACCENT_COLORS[i % len(_ACCENT_COLORS)])
+
+        # Light fill box with accent border (academic-diagram style).
         box = FancyBboxPatch(
-            (0.2, y_pos - 0.35), 1.6, 0.6,
-            boxstyle="round,pad=0.1",
-            facecolor=color,
-            edgecolor=_FG,
-            linewidth=2,
-            alpha=0.7,
+            (0.2, y_pos - 0.32), 1.6, 0.58,
+            boxstyle="round,pad=0.08",
+            facecolor="#f5f7fa",
+            edgecolor=accent,
+            linewidth=1.4,
         )
         ax.add_patch(box)
-        
-        # Add text
-        ax.text(1, y_pos, text, ha="center", va="center", 
-                fontsize=11, fontweight="bold", color="white", wrap=True)
-        
-        # Draw arrow to next step
+
+        ax.text(1, y_pos, text, ha="center", va="center",
+                fontsize=10, fontweight="bold", color=_FG, wrap=True)
+
         if i < n_steps - 1:
             arrow = FancyArrowPatch(
-                (1, y_pos - 0.4), (1, y_pos - 0.65),
-                arrowstyle="->",
-                mutation_scale=25,
-                linewidth=2,
-                color=_FG,
+                (1, y_pos - 0.38), (1, y_pos - 0.62),
+                arrowstyle="-|>",
+                mutation_scale=14,
+                linewidth=1.2,
+                color=_MUTED,
             )
             ax.add_patch(arrow)
 
     if title:
-        ax.text(1, n_steps + 0.3, title, ha="center", va="bottom",
-                fontsize=14, fontweight="bold", color=_FG)
-    
+        ax.text(1, n_steps + 0.25, title, ha="center", va="bottom",
+                fontsize=12, fontweight="bold", color=_FG)
+
     return _fig_to_base64(fig)
 
 
@@ -423,32 +472,29 @@ def _make_architecture_diagram(spec: dict) -> str:
         row = rows - 1 - (idx // cols)
         col = idx % cols
         x, y = col + 0.5, row + 0.5
-        
+
         name = comp.get("name", f"Component {idx+1}")
         comp_type = comp.get("type", "module")
-        color = comp.get("color", _ACCENT_COLORS[idx % len(_ACCENT_COLORS)])
-        
-        # Draw component box
+        accent = comp.get("color", _ACCENT_COLORS[idx % len(_ACCENT_COLORS)])
+
         box = FancyBboxPatch(
-            (x - 0.35, y - 0.3), 0.7, 0.6,
-            boxstyle="round,pad=0.05",
-            facecolor=color,
-            edgecolor=_FG,
-            linewidth=2,
-            alpha=0.8,
+            (x - 0.36, y - 0.3), 0.72, 0.6,
+            boxstyle="round,pad=0.04",
+            facecolor="#f5f7fa",
+            edgecolor=accent,
+            linewidth=1.4,
         )
         ax.add_patch(box)
-        
-        # Add labels
-        ax.text(x, y + 0.15, name, ha="center", va="center",
-                fontsize=9, fontweight="bold", color="white")
-        ax.text(x, y - 0.1, f"({comp_type})", ha="center", va="center",
-                fontsize=7, color="white", style="italic")
+
+        ax.text(x, y + 0.12, name, ha="center", va="center",
+                fontsize=9, fontweight="bold", color=_FG)
+        ax.text(x, y - 0.13, f"({comp_type})", ha="center", va="center",
+                fontsize=7, color=_MUTED, style="italic")
 
     if title:
         ax.text(cols / 2, rows + 0.2, title, ha="center", va="bottom",
-                fontsize=14, fontweight="bold", color=_FG)
-    
+                fontsize=12, fontweight="bold", color=_FG)
+
     return _fig_to_base64(fig)
 
 
@@ -468,19 +514,19 @@ def _make_formula(spec: dict) -> str:
     try:
         ax.text(0.5, 0.6, f"${formula}$", ha="center", va="center",
                 fontsize=20, transform=ax.transAxes, color=_FG,
-                bbox=dict(boxstyle="round,pad=0.8", facecolor="#1a1d29",
-                          edgecolor=_ACCENT_COLORS[0], linewidth=2))
+                bbox=dict(boxstyle="round,pad=0.8", facecolor="#f5f7fa",
+                          edgecolor=_RULE, linewidth=1.0))
     except Exception:
         ax.text(0.5, 0.6, formula, ha="center", va="center",
                 fontsize=16, transform=ax.transAxes, color=_FG)
-    
+
     if title:
         ax.text(0.5, 0.95, title, ha="center", va="top",
                 fontsize=12, fontweight="bold", transform=ax.transAxes, color=_FG)
-    
+
     if description:
         ax.text(0.5, 0.15, description, ha="center", va="center",
-                fontsize=10, transform=ax.transAxes, color=_FG, style="italic", wrap=True)
+                fontsize=10, transform=ax.transAxes, color=_MUTED, style="italic", wrap=True)
     
     fig.tight_layout()
     return _fig_to_base64(fig)
@@ -503,33 +549,33 @@ def _make_matrix_comparison(spec: dict) -> str:
     # Header
     for j, cat in enumerate(categories):
         ax.text(j, len(items), cat, ha="center", va="center",
-                fontsize=11, fontweight="bold", color=_ACCENT_COLORS[j % len(_ACCENT_COLORS)])
+                fontsize=10, fontweight="bold", color=_FG)
 
     # Items and scores
     for i, item in enumerate(items):
         name = item.get("name", f"Item {i+1}")
         scores = item.get("scores", [0] * len(categories))
-        
+
         ax.text(-0.3, len(items) - 1 - i, name, ha="right", va="center",
-                fontsize=10, fontweight="bold", color=_FG)
-        
+                fontsize=9, fontweight="bold", color=_FG)
+
         for j, score in enumerate(scores):
             score = min(100, max(0, float(score)))
-            color_intensity = score / 100.0
-            color = plt.cm.RdYlGn(color_intensity)
-            
-            # Draw cell
-            rect = plt.Rectangle((j - 0.35, len(items) - 1.35 - i), 0.7, 0.7,
-                                  facecolor=color, edgecolor=_FG, linewidth=1)
+            # Light blue ramp for academic look (instead of red-yellow-green).
+            color = plt.cm.Blues(0.25 + 0.55 * (score / 100.0))
+
+            rect = plt.Rectangle((j - 0.36, len(items) - 1.36 - i), 0.72, 0.72,
+                                  facecolor=color, edgecolor=_RULE, linewidth=0.8)
             ax.add_patch(rect)
-            
-            # Add score
+
+            # Pick text color for readability against the cell fill.
+            txt_color = "white" if score >= 65 else _FG
             ax.text(j, len(items) - 1 - i, f"{int(score)}", ha="center", va="center",
-                    fontsize=9, fontweight="bold", color="black")
+                    fontsize=9, fontweight="bold", color=txt_color)
 
     if title:
         ax.text(len(categories) / 2, len(items) + 0.5, title, ha="center", va="bottom",
-                fontsize=14, fontweight="bold", color=_FG)
+                fontsize=12, fontweight="bold", color=_FG)
     
     return _fig_to_base64(fig)
 

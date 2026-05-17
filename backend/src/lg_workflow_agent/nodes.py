@@ -691,7 +691,31 @@ def create_node_paper_writer(llm, db):
             logger.warning("[paper_writer] no report content available")
             return {}
 
-        image_manifest = "NO CHART IMAGES AVAILABLE. Use tables to present data instead."
+        # Build an image manifest from charts rendered by the report_finalizer.
+        # Each entry already has a base64 PNG (data_uri); assign deterministic
+        # filenames so the LLM can reference them via \includegraphics.
+        report_images = state.get("report_images") or []
+        paper_images: list[dict[str, str]] = []
+        manifest_lines: list[str] = []
+        for idx, img in enumerate(report_images):
+            if not isinstance(img, dict) or not img.get("data_uri"):
+                continue
+            fname = f"figure_{idx + 1}.png"
+            caption = (img.get("caption") or f"Figure {idx + 1}").strip()
+            paper_images.append({"filename": fname, "data_uri": img["data_uri"], "caption": caption})
+            manifest_lines.append(f"- {fname}: {caption}")
+
+        if paper_images:
+            image_manifest = (
+                "AVAILABLE CHART IMAGES (embed each one in a \\begin{figure} "
+                "environment using the EXACT filename listed, with a meaningful "
+                "\\caption based on the description):\n"
+                + "\n".join(manifest_lines)
+            )
+        else:
+            image_manifest = "NO CHART IMAGES AVAILABLE. Use tables to present data instead."
+
+        allowed_filenames = {img["filename"] for img in paper_images}
 
         # Step 1: Generate initial LaTeX
         prompt = RESEARCH_PAPER_PROMPT.format(
@@ -710,14 +734,14 @@ def create_node_paper_writer(llm, db):
             _persist(db, state.get("task_id", ""), "paper_writer", {"status": "LLM_ERROR", "error": str(exc)})
             return {}
 
-        latex = clean_latex(raw_latex)
+        latex = clean_latex(raw_latex, allowed_images=allowed_filenames)
 
         # Step 2: Compile → if errors, feed back to LLM for fixing
         pdf_bytes: bytes | None = None
         compile_errors: list[str] = []
 
         for attempt in range(1 + MAX_FIX_RETRIES):
-            pdf_bytes, compile_errors = compile_latex_to_pdf(latex)
+            pdf_bytes, compile_errors = compile_latex_to_pdf(latex, images=paper_images)
 
             if pdf_bytes is not None:
                 logger.info(f"[paper_writer] PDF compiled on attempt {attempt + 1}")
@@ -738,7 +762,7 @@ def create_node_paper_writer(llm, db):
                          HumanMessage(content=fix_prompt)]
                     )
                     fixed_raw = fix_response.content if isinstance(fix_response.content, str) else str(fix_response.content)
-                    latex = clean_latex(fixed_raw)
+                    latex = clean_latex(fixed_raw, allowed_images=allowed_filenames)
                 except Exception as exc:
                     logger.warning(f"[paper_writer] Fix LLM call failed: {exc}")
                     break
