@@ -13,7 +13,7 @@ import re
 import tempfile
 from collections import Counter
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -57,35 +57,15 @@ def _ensure_tinytex() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _decode_image_payload(payload: str) -> bytes | None:
-    """Decode an image payload that may be either raw base64 or a data URI."""
-    if not payload:
-        return None
-    data = payload
-    if data.startswith("data:"):
-        comma = data.find(",")
-        if comma < 0:
-            return None
-        data = data[comma + 1 :]
-    try:
-        return base64.b64decode(data)
-    except Exception:
-        return None
-
-
-def compile_latex_to_pdf(
-    latex: str,
-    images: Iterable[dict[str, str]] | None = None,
-) -> tuple[bytes | None, list[str]]:
+def compile_latex_to_pdf(latex: str) -> tuple[bytes | None, list[str]]:
     """Compile LaTeX source to PDF using PyTinyTeX.
-
-    Optionally, ``images`` is an iterable of dicts with at minimum a ``filename``
-    key and either ``data_uri`` or ``base64`` payload. The images are written
-    next to the .tex file so ``\\includegraphics{filename}`` can find them.
 
     Returns (pdf_bytes, errors). On success, pdf_bytes is the raw PDF content
     and errors is empty. On failure, pdf_bytes is None and errors contains
     the compilation error messages.
+
+    All figures must be self-contained (TikZ / pgfplots / booktabs tables) —
+    no external image files are written or referenced.
     """
     _ensure_tinytex()
 
@@ -101,25 +81,6 @@ def compile_latex_to_pdf(
         tmp_path = Path(tmp)
         tex_path = tmp_path / "paper.tex"
         tex_path.write_text(latex, encoding="utf-8")
-
-        # Write any provided images into the temp dir so pdflatex can find them.
-        if images:
-            for img in images:
-                fname = img.get("filename") if isinstance(img, dict) else None
-                payload = (
-                    img.get("data_uri") or img.get("base64") or img.get("data")
-                    if isinstance(img, dict)
-                    else None
-                )
-                if not fname or not payload:
-                    continue
-                raw = _decode_image_payload(payload)
-                if not raw:
-                    continue
-                try:
-                    (tmp_path / fname).write_bytes(raw)
-                except Exception:
-                    continue
 
         try:
             # Two passes are required so \\cite{} keys resolve via the .aux file;
@@ -252,13 +213,12 @@ def validate_latex(latex: str) -> tuple[bool, list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def clean_latex(raw: str, allowed_images: set[str] | None = None) -> str:
+def clean_latex(raw: str) -> str:
     """Strip markdown fences, fix common LLM mistakes, and normalize output.
 
-    If ``allowed_images`` is provided, figures referencing those filenames are
-    preserved; figures referencing any other filename are stripped (avoids
-    pdflatex failing on missing files). When ``allowed_images`` is None or
-    empty, all figure environments are stripped (legacy behaviour).
+    Figure environments (TikZ / pgfplots / tabular) are preserved. Stray
+    ``\\includegraphics`` commands are stripped because no image files exist
+    in the build directory.
     """
     cleaned = raw.strip()
     cleaned = re.sub(r"^```(?:latex|tex)?\s*\n?", "", cleaned)
@@ -274,11 +234,11 @@ def clean_latex(raw: str, allowed_images: set[str] | None = None) -> str:
     if end_idx > 0:
         cleaned = cleaned[: end_idx + len(r"\end{document}")]
 
-    cleaned = _fix_common_latex_errors(cleaned, allowed_images=allowed_images)
+    cleaned = _fix_common_latex_errors(cleaned)
     return cleaned
 
 
-def _fix_common_latex_errors(latex: str, allowed_images: set[str] | None = None) -> str:
+def _fix_common_latex_errors(latex: str) -> str:
     """Auto-correct common LLM mistakes in generated LaTeX."""
 
     # --- Fix \texttt{} misused as LaTeX quotes (multiple broken patterns) ---
@@ -314,48 +274,9 @@ def _fix_common_latex_errors(latex: str, allowed_images: set[str] | None = None)
     # Escape unescaped dollar signs in text (not in math mode)
     latex = re.sub(r"(?<!\\)\$(\d)", r"\\$\1", latex)
 
-    # Handle figures based on which image files are actually available.
-    allowed = {n.strip() for n in (allowed_images or set()) if n and n.strip()}
-    if not allowed:
-        # No images available -> strip every figure/includegraphics outright.
-        latex = re.sub(
-            r"\\begin\{figure\}.*?\\end\{figure\}",
-            "",
-            latex,
-            flags=re.DOTALL,
-        )
-        latex = re.sub(r"\\includegraphics(?:\[[^\]]*\])?\{[^}]*\}\n?", "", latex)
-    else:
-        # Drop figure environments whose included file is not in our manifest.
-        def _figure_filter(match: re.Match[str]) -> str:
-            block = match.group(0)
-            inc = re.search(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}", block)
-            if not inc:
-                return ""
-            fname = inc.group(1).strip()
-            # Allow exact match or basename match (handles paths like ./foo.png).
-            base = fname.rsplit("/", 1)[-1]
-            if fname in allowed or base in allowed:
-                return block
-            return ""
-
-        latex = re.sub(
-            r"\\begin\{figure\}.*?\\end\{figure\}",
-            _figure_filter,
-            latex,
-            flags=re.DOTALL,
-        )
-        # Strip stray \includegraphics (outside figure environments) that reference unknown files.
-        def _inc_filter(match: re.Match[str]) -> str:
-            fname = match.group(1).strip()
-            base = fname.rsplit("/", 1)[-1]
-            return match.group(0) if (fname in allowed or base in allowed) else ""
-
-        latex = re.sub(
-            r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}",
-            _inc_filter,
-            latex,
-        )
+    # Strip any stray \includegraphics — no image files exist on disk.
+    # Figure environments themselves are preserved (they contain TikZ/pgfplots).
+    latex = re.sub(r"\\includegraphics(?:\[[^\]]*\])?\{[^}]*\}\n?", "", latex)
 
     # Remove instructional comments
     latex = re.sub(r"%\s*(Adjust|TODO|FIXME|Insert|Change).*\n", "\n", latex)

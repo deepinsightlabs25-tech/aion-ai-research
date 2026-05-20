@@ -13,12 +13,11 @@ logger = logging.getLogger(__name__)
 _MAX_TASKS = 5  # Maximum number of completed tasks to keep in memory
 _TASK_TTL = 600  # Seconds to keep completed/failed tasks (10 minutes)
 
-# Keys in step metadata that may hold large payloads (base64 PDFs/PNGs, full text)
+# Keys in step metadata that may hold large payloads (base64 PDFs, full text)
 _HEAVY_STEP_KEYS = (
     "research_paper_pdf_base64",
     "research_paper_latex",
     "research_paper_metadata",
-    "charts",
     "final_report",
     "report",
     "sections",
@@ -29,17 +28,7 @@ _HEAVY_STEP_KEYS = (
 
 
 def _release_memory() -> None:
-    """Force release of process memory after a task finishes.
-
-    Closes any open matplotlib figures (chart_generator may leave the
-    pyplot state alive) and runs a full GC pass.
-    """
-    try:
-        from src.lg_workflow_agent import chart_generator as _cg
-        if _cg.plt is not None:
-            _cg.plt.close("all")
-    except Exception:
-        pass
+    """Force release of process memory after a task finishes."""
     gc.collect()
 
 
@@ -145,10 +134,7 @@ class ResearchPipeline:
                 # Re-compile PDF from cached LaTeX (fast, ~1s)
                 try:
                     from src.lg_workflow_agent.paper_formatter import compile_latex_to_pdf, pdf_to_base64
-                    pdf_bytes, _ = compile_latex_to_pdf(
-                        cached["paper_latex"],
-                        images=cached.get("paper_images"),
-                    )
+                    pdf_bytes, _ = compile_latex_to_pdf(cached["paper_latex"])
                     if pdf_bytes:
                         paper_data["pdf_base64"] = pdf_to_base64(pdf_bytes)
                 except Exception:

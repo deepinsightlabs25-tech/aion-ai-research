@@ -61,10 +61,6 @@ from src.lg_workflow_agent.nodes import (  # noqa: E402
     create_node_cleanup,
     create_assign_workers,
 )
-from src.lg_workflow_agent.chart_generator import (  # noqa: E402
-    generate_charts_for_report,
-    render_chart,
-)
 from src.lg_workflow_agent.paper_formatter import (  # noqa: E402
     clean_latex,
     compile_latex_to_pdf,
@@ -429,7 +425,7 @@ def test_validator(llm) -> bool:
 
 
 def test_report_finalizer(llm) -> bool:
-    """Test the report_finalizer node: expects chart specs and enriched report."""
+    """Test the report_finalizer node: expects an enriched Markdown report."""
     t0 = time.time()
     try:
         node_fn = create_node_report_finalizer(llm, db=None)
@@ -439,14 +435,12 @@ def test_report_finalizer(llm) -> bool:
             "aggregated": SEED_AGGREGATED,
         }
         result = node_fn(state)
-        charts = result.get("chart_specs", [])
-        images = result.get("report_images", [])
         final = result.get("final_report", "")
         ok = len(final) > 100
         return _result(
             "report_finalizer",
             ok,
-            f"{len(charts)} chart specs, {len(images)} images rendered, {len(final)} chars",
+            f"{len(final)} chars in enhanced report",
             time.time() - t0,
         )
     except Exception as exc:
@@ -574,105 +568,15 @@ def run_node_tests(selected: list[str] | None = None) -> None:
 # Chart / visualisation tests
 # ─────────────────────────────────────────────────────────────────────────────
 
-SAMPLE_CHART_SPECS: list[dict[str, Any]] = [
-    {
-        "chart_type": "bar",
-        "title": "Framework Popularity (GitHub Stars)",
-        "caption": "GitHub stars comparison",
-        "labels": ["LangGraph", "CrewAI", "AutoGen"],
-        "values": [18500, 22000, 31000],
-        "ylabel": "Stars",
-    },
-    {
-        "chart_type": "line",
-        "title": "Monthly Downloads Trend",
-        "caption": "PyPI downloads over time",
-        "series": [
-            {"name": "LangGraph", "x": ["Jan", "Feb", "Mar", "Apr"], "y": [120, 180, 250, 310]},
-            {"name": "CrewAI", "x": ["Jan", "Feb", "Mar", "Apr"], "y": [90, 140, 200, 280]},
-        ],
-        "xlabel": "Month",
-        "ylabel": "Downloads (K)",
-    },
-    {
-        "chart_type": "pie",
-        "title": "Market Share 2026",
-        "caption": "Framework market share",
-        "labels": ["LangGraph", "CrewAI", "AutoGen", "Other"],
-        "values": [35, 28, 22, 15],
-    },
-    {
-        "chart_type": "comparison_table",
-        "title": "Feature Comparison",
-        "caption": "Feature comparison table",
-        "headers": ["Feature", "LangGraph", "CrewAI"],
-        "rows": [
-            ["Streaming", "Yes", "Yes (v3+)"],
-            ["Checkpointing", "Yes", "No"],
-            ["Human-in-loop", "Yes", "Limited"],
-        ],
-    },
-    {
-        "chart_type": "stat_card",
-        "title": "Key Metrics",
-        "caption": "Key metrics overview",
-        "metrics": [
-            {"label": "Frameworks Compared", "value": 3},
-            {"label": "Sources Analysed", "value": 24},
-            {"label": "Papers Referenced", "value": 8},
-        ],
-    },
-]
+SAMPLE_CHART_SPECS: list[dict[str, Any]] = []  # Deprecated: matplotlib pipeline removed.
 
 
 def run_chart_tests() -> None:
-    """Test the chart/visualisation renderer with each supported type."""
+    """Deprecated stub. The matplotlib-based chart pipeline has been removed —
+    visualizations are now LLM-generated Mermaid/KaTeX/TikZ text.
+    """
     _header("Chart & Visualisation Tests")
-
-    passed = 0
-    failed = 0
-
-    # Test individual chart types
-    for spec in SAMPLE_CHART_SPECS:
-        ctype = spec["chart_type"]
-        t0 = time.time()
-        try:
-            uri = render_chart(spec)
-            ok = uri is not None and uri.startswith("data:image/png;base64,")
-            size = len(uri) if uri else 0
-            if _result(f"render: {ctype}", ok, f"data_uri size={size}", time.time() - t0):
-                passed += 1
-            else:
-                failed += 1
-        except Exception as exc:
-            _result(f"render: {ctype}", False, f"Exception: {exc}", time.time() - t0)
-            failed += 1
-
-    # Test unknown chart type (should return None gracefully)
-    t0 = time.time()
-    uri = render_chart({"chart_type": "unknown_type"})
-    ok = uri is None
-    if _result("render: unknown_type (graceful fail)", ok, f"returned {uri!r}", time.time() - t0):
-        passed += 1
-    else:
-        failed += 1
-
-    # Test batch generation
-    t0 = time.time()
-    results = generate_charts_for_report(SAMPLE_CHART_SPECS)
-    ok = len(results) == len(SAMPLE_CHART_SPECS)
-    if _result(
-        "generate_charts_for_report (batch)",
-        ok,
-        f"{len(results)}/{len(SAMPLE_CHART_SPECS)} rendered, "
-        f"captions={[r['caption'] for r in results]}",
-        time.time() - t0,
-    ):
-        passed += 1
-    else:
-        failed += 1
-
-    print(f"\n  Summary: {passed} passed, {failed} failed, {passed + failed} total")
+    print("  (skipped — chart_generator removed; visuals are now LLM-emitted text)\n")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Paper formatter tests
@@ -815,22 +719,17 @@ async def run_stream(query: str) -> None:
     print(f"Agent ready. Streaming query:\n  {query}\n")
 
     final_report = ""
-    chart_count = 0
-    image_count = 0
     async for event in agent.astream(query):
         step = event.get("step", "?")
         data = event.get("data", {})
 
         # Compact per-step trace (avoid dumping huge base64 blobs)
         keys = sorted(k for k in data.keys() if k != "messages")
-        # Summarise data — truncate any field with base64 content
         display_data = {}
         for k in keys:
             v = data[k]
             if isinstance(v, str) and len(v) > 2000:
                 display_data[k] = f"<{len(v)} chars>"
-            elif isinstance(v, list) and k in ("report_images", "chart_specs"):
-                display_data[k] = f"<{len(v)} items>"
             else:
                 display_data[k] = v
         print(f"~~~~~~~~~~~~~~~~~~~~~~ [{step}] keys={keys}")
@@ -841,25 +740,9 @@ async def run_stream(query: str) -> None:
         elif data.get("draft_report"):
             final_report = data["draft_report"]
 
-        if data.get("chart_specs"):
-            chart_count = len(data["chart_specs"])
-        if data.get("report_images"):
-            image_count = len(data["report_images"])
-
-    has_images = "data:image/png;base64" in final_report
-    embedded_count = final_report.count("data:image/png;base64")
-
     print("\n=== FINAL REPORT ===\n")
-    # Print report text but truncate base64 lines for readability
-    for line in final_report.split("\n"):
-        if "data:image/png;base64" in line:
-            # Show just the markdown image alt text, not the blob
-            print(line[:120] + "...<base64 image data>...")
-        else:
-            print(line)
+    print(final_report)
     print("\n=== END REPORT ===")
-    print(f"\n📊 Charts requested: {chart_count}")
-    print(f"🖼️  Images embedded: {embedded_count}")
     if final_report:
         save_report(final_report, query)
 

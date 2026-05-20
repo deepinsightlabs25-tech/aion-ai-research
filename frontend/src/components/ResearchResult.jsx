@@ -4,12 +4,64 @@
  * Provides copy-to-clipboard, PDF download, and back navigation.
  */
 
-import React, { useMemo, useState, useRef } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import mermaid from 'mermaid'
+import 'katex/dist/katex.min.css'
 import ResearchPaperView from './ResearchPaperView'
 import { normalizeResearchPaper, pdfBase64ToBlobUrl } from '../lib/latexPaper'
 import { downloadBlob, fetchResearchPaper } from '../services/api'
+
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'default',
+  securityLevel: 'loose',
+  fontFamily: 'inherit',
+})
+
+// Renders a fenced ```mermaid block into inline SVG using mermaid.js.
+function MermaidBlock({ code }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    let cancelled = false
+    const id = 'm' + Math.random().toString(36).slice(2, 10)
+    mermaid
+      .render(id, code)
+      .then(({ svg }) => {
+        if (!cancelled && ref.current) ref.current.innerHTML = svg
+      })
+      .catch((err) => {
+        if (!cancelled && ref.current) {
+          ref.current.innerHTML =
+            '<pre class="text-xs text-red-700 bg-red-50 p-2 rounded">' +
+            String(err).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) +
+            '</pre>'
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [code])
+  return <div ref={ref} className="my-6 flex justify-center overflow-x-auto" />
+}
+
+// Custom code renderer: ```mermaid → <MermaidBlock>, everything else stays code.
+const markdownComponents = {
+  code({ inline, className, children, ...props }) {
+    const text = String(children ?? '').replace(/\n$/, '')
+    if (!inline && /language-mermaid/.test(className || '')) {
+      return <MermaidBlock code={text} />
+    }
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    )
+  },
+}
 
 // react-markdown v9 strips `data:` URIs from image src by default, which
 // removes the inline base64 charts/images produced by the report_finalizer
@@ -290,8 +342,10 @@ const ResearchResult = ({ content, researchPaper, topic, taskId, steps = [], onB
           ) : (
             <div className="research-prose">
               <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
                 urlTransform={safeUrlTransform}
+                components={markdownComponents}
               >
                 {content}
               </ReactMarkdown>

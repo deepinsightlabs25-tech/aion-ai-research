@@ -1,4 +1,8 @@
-"""Paper Writer node — convert deep_research reports into LaTeX papers and PDF."""
+"""Paper Writer node — convert deep_research reports into LaTeX papers and PDF.
+
+All figures are native TikZ/pgfplots/booktabs emitted by the LLM. No external
+image files are produced or consumed.
+"""
 
 from __future__ import annotations
 
@@ -23,17 +27,9 @@ logger = logging.getLogger(__name__)
 
 
 def create_node_paper_writer(llm, db):
-    """Convert a deep_research report into a compilable LaTeX paper and PDF.
+    """Convert a deep_research report into a compilable LaTeX paper and PDF."""
 
-    This node only activates for deep_research queries. It:
-    1. Generates LaTeX from the finalized report via LLM
-    2. Cleans common LLM mistakes
-    3. Compiles to PDF using PyTinyTeX
-    4. If compilation fails, feeds errors back to LLM for fixing (up to 2 retries)
-    5. Returns the LaTeX source + PDF (base64) + metadata
-    """
-
-    MAX_FIX_RETRIES = 2
+    MAX_FIX_RETRIES = 3
 
     def node_paper_writer(state: WorkflowState):
         t0 = time.time()
@@ -50,57 +46,30 @@ def create_node_paper_writer(llm, db):
             logger.warning("[paper_writer] no report content available")
             return {}
 
-        # Build an image manifest from charts rendered by the report_finalizer.
-        # Each entry already has a base64 PNG (data_uri); assign deterministic
-        # filenames so the LLM can reference them via \includegraphics.
-        report_images = state.get("report_images") or []
-        paper_images: list[dict[str, str]] = []
-        manifest_lines: list[str] = []
-        for idx, img in enumerate(report_images):
-            if not isinstance(img, dict) or not img.get("data_uri"):
-                continue
-            fname = f"figure_{idx + 1}.png"
-            caption = (img.get("caption") or f"Figure {idx + 1}").strip()
-            paper_images.append({"filename": fname, "data_uri": img["data_uri"], "caption": caption})
-            manifest_lines.append(f"- {fname}: {caption}")
-
-        if paper_images:
-            image_manifest = (
-                "AVAILABLE CHART IMAGES (embed each one in a \\begin{figure} "
-                "environment using the EXACT filename listed, with a meaningful "
-                "\\caption based on the description):\n"
-                + "\n".join(manifest_lines)
-            )
-        else:
-            image_manifest = "NO CHART IMAGES AVAILABLE. Use tables to present data instead."
-
-        allowed_filenames = {img["filename"] for img in paper_images}
-
-        # Step 1: Generate initial LaTeX
+        # Step 1: Generate initial LaTeX (no image manifest — visuals are native).
         prompt = RESEARCH_PAPER_PROMPT.format(
             report=report,
             aggregated=json.dumps(aggregated, indent=2, default=str)[:15000],
-            image_manifest=image_manifest,
         )
         try:
-            response = llm.invoke(
-                [SystemMessage(content="You are an expert academic paper writer. Return complete, compilable LaTeX only."),
-                 HumanMessage(content=prompt)]
-            )
+            response = llm.invoke([
+                SystemMessage(content="You are an expert academic paper writer. Return complete, compilable LaTeX only."),
+                HumanMessage(content=prompt),
+            ])
             raw_latex = response.content if isinstance(response.content, str) else str(response.content)
         except Exception as exc:
             logger.error(f"[paper_writer] LLM call failed: {exc}")
             persist(db, state.get("task_id", ""), "paper_writer", {"status": "LLM_ERROR", "error": str(exc)})
             return {}
 
-        latex = clean_latex(raw_latex, allowed_images=allowed_filenames)
+        latex = clean_latex(raw_latex)
 
-        # Step 2: Compile -> if errors, feed back to LLM for fixing
+        # Step 2: Compile -> if errors, feed back to LLM for fixing.
         pdf_bytes: bytes | None = None
         compile_errors: list[str] = []
 
         for attempt in range(1 + MAX_FIX_RETRIES):
-            pdf_bytes, compile_errors = compile_latex_to_pdf(latex, images=paper_images)
+            pdf_bytes, compile_errors = compile_latex_to_pdf(latex)
 
             if pdf_bytes is not None:
                 logger.info(f"[paper_writer] PDF compiled on attempt {attempt + 1}")
@@ -116,17 +85,17 @@ def create_node_paper_writer(llm, db):
                     latex=latex,
                 )
                 try:
-                    fix_response = llm.invoke(
-                        [SystemMessage(content="You are a LaTeX debugging expert. Return the complete fixed document only."),
-                         HumanMessage(content=fix_prompt)]
-                    )
+                    fix_response = llm.invoke([
+                        SystemMessage(content="You are a LaTeX debugging expert. Return the complete fixed document only."),
+                        HumanMessage(content=fix_prompt),
+                    ])
                     fixed_raw = fix_response.content if isinstance(fix_response.content, str) else str(fix_response.content)
-                    latex = clean_latex(fixed_raw, allowed_images=allowed_filenames)
+                    latex = clean_latex(fixed_raw)
                 except Exception as exc:
                     logger.warning(f"[paper_writer] Fix LLM call failed: {exc}")
                     break
 
-        # Step 3: Extract metadata
+        # Step 3: Extract metadata.
         is_valid = pdf_bytes is not None
         paper_meta = extract_paper_metadata(latex)
 
@@ -149,7 +118,6 @@ def create_node_paper_writer(llm, db):
             "compile_errors": compile_errors if not is_valid else [],
         }
 
-        # Encode PDF as base64 for transport
         pdf_base64 = pdf_to_base64(pdf_bytes) if pdf_bytes else None
 
         persist(db, state.get("task_id", ""), "paper_writer", {
@@ -170,7 +138,6 @@ def create_node_paper_writer(llm, db):
             "research_paper_latex": latex,
             "research_paper_metadata": full_metadata,
             "research_paper_pdf_base64": pdf_base64,
-            "research_paper_images": paper_images,
         }
 
     return node_paper_writer

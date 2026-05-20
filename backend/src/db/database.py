@@ -42,8 +42,7 @@ class VectorDBContext:
     def search_query(self, query: str) -> Optional[Dict[str, Any]]:
         """Search if a similar query has already been processed.
 
-        Returns a dict with 'report' and optionally 'paper_latex' / 'paper_images'
-        keys, or None.
+        Returns a dict with 'report' and optionally 'paper_latex', or None.
         """
         try:
             vector = self._get_embedding(query)
@@ -61,8 +60,6 @@ class VectorDBContext:
                     hit: Dict[str, Any] = {"report": best_match.payload.get("report", "")}
                     if best_match.payload.get("paper_latex"):
                         hit["paper_latex"] = best_match.payload["paper_latex"]
-                    if best_match.payload.get("paper_images"):
-                        hit["paper_images"] = best_match.payload["paper_images"]
                     return hit
         except Exception as e:
             print(f"Error searching query: {e}")
@@ -74,7 +71,6 @@ class VectorDBContext:
         query: str,
         report: str,
         paper_latex: str | None = None,
-        paper_images: list[Dict[str, str]] | None = None,
     ) -> None:
         """Save a new original query, its generated report, and optional LaTeX paper."""
         try:
@@ -86,8 +82,6 @@ class VectorDBContext:
             }
             if paper_latex:
                 payload["paper_latex"] = paper_latex
-            if paper_images:
-                payload["paper_images"] = paper_images
             self.client.upsert(
                 collection_name=COLLECTION_NAME,
                 points=[

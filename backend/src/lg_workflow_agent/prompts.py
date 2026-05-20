@@ -33,20 +33,60 @@ CRITICAL LaTeX FORMATTING RULES (violations will make the paper un-compilable):
 - All citations must use \\cite{{key}} and match entries in thebibliography.
 - Convert inline [n] citations from the report into proper \\cite{{ref_n}} commands.
 - Tables must use \\begin{{table}}...\\end{{table}} with \\caption and \\label.
-- Include \\usepackage{{graphicx,amsmath,booktabs,hyperref,url,geometry}} in preamble.
 - Author field should be "Research Team" with a placeholder institution.
 - Keep total length between 6-10 pages (IEEE two-column format).
 - Write in formal academic tone: third person, passive voice where appropriate.
 - Every claim must be supported by a citation or data from the report.
 - Transform bullet-point findings into flowing academic prose with proper transitions.
 
-FIGURE/IMAGE RULES:
-{image_manifest}
-- If images are available, embed them using \\begin{{figure}}...\\end{{figure}} with \
-  \\includegraphics[width=0.9\\columnwidth]{{FILENAME}} pointing to the EXACT filenames listed above.
-- Place each figure near the section it illustrates, with a meaningful \\caption and \\label.
-- If NO images are available, use \\begin{{table}} environments to present data visually instead.
-- NEVER invent filenames that are not listed above.
+REQUIRED PREAMBLE PACKAGES (all ship with TinyTeX, no extra installs needed):
+\\usepackage[margin=1in]{{geometry}}
+\\usepackage{{graphicx,amsmath,amssymb,booktabs,hyperref,url}}
+\\usepackage{{pgfplots}}
+\\pgfplotsset{{compat=1.18}}
+\\usepackage{{tikz}}
+\\usetikzlibrary{{arrows.meta, positioning, shapes.geometric}}
+
+NATIVE VISUALIZATION RULES (NO external image files — everything compiles from text):
+- NEVER use \\includegraphics. There are NO image files available. Any reference
+  to \\includegraphics will be stripped before compilation.
+- For bar / line / scatter plots, use pgfplots inside a figure environment:
+    \\begin{{figure}}[t]
+      \\centering
+      \\begin{{tikzpicture}}
+        \\begin{{axis}}[
+          width=0.9\\columnwidth, height=5cm,
+          ybar, ymin=0, nodes near coords,
+          symbolic x coords={{GPT-4,Claude-3,Gemini,Llama-3}},
+          xtick=data, ylabel={{Accuracy (\\%)}},
+        ]
+          \\addplot coordinates {{(GPT-4,86) (Claude-3,84) (Gemini,82) (Llama-3,79)}};
+        \\end{{axis}}
+      \\end{{tikzpicture}}
+      \\caption{{Model accuracy on MMLU.}}
+      \\label{{fig:accuracy}}
+    \\end{{figure}}
+- For flowcharts / architectures, use a tikzpicture with nodes and arrows:
+    \\begin{{figure}}[t]
+      \\centering
+      \\begin{{tikzpicture}}[node distance=1.2cm and 1.5cm,
+        every node/.style={{draw, rounded corners, minimum height=0.8cm, minimum width=2cm}}]
+        \\node (q) {{User Query}};
+        \\node[right=of q] (r) {{Retriever}};
+        \\node[right=of r] (l) {{LLM}};
+        \\node[right=of l] (a) {{Response}};
+        \\draw[-Latex] (q) -- (r); \\draw[-Latex] (r) -- (l); \\draw[-Latex] (l) -- (a);
+      \\end{{tikzpicture}}
+      \\caption{{RAG pipeline overview.}}
+      \\label{{fig:pipeline}}
+    \\end{{figure}}
+- For tabular comparisons, use tabular + booktabs (\\toprule, \\midrule, \\bottomrule)
+  inside a \\begin{{table}}...\\end{{table}} environment with \\caption and \\label.
+- For mathematical relationships, use equation or align environments.
+- Generate 3-6 figures total, varied across pgfplots, tikz diagrams, and tables.
+- Use REAL numbers from the aggregated data. Never invent values.
+- Every figure needs a \\caption{{...}} and a \\label{{fig:...}}, and must be
+  referenced in text via Figure~\\ref{{fig:...}}.
 
 REFERENCE QUALITY RULES:
 - For \\bibitem entries, use proper academic citation format:
@@ -113,6 +153,9 @@ COMMON FIXES:
 - Missing packages: add \\usepackage{{...}} in the preamble
 - Undefined control sequences: check spelling of LaTeX commands
 - Math mode errors: ensure $ or \\[ are properly opened and closed
+- pgfplots errors: ensure \\pgfplotsset{{compat=1.18}} is in the preamble
+- TikZ errors: ensure \\usetikzlibrary{{arrows.meta, positioning, shapes.geometric}}
+- NEVER reintroduce \\includegraphics — no image files exist in the build directory
 
 Return the COMPLETE fixed LaTeX document from \\documentclass to \\end{{document}}.
 Do NOT wrap in markdown code fences — return raw LaTeX only.
@@ -380,86 +423,64 @@ Return STRICT JSON only, no prose, no fences:
 # --------------------- Report Finalizer (visual-rich output) ------------------
 
 REPORT_FINALIZER_PROMPT = """You are the Visual Report Finalizer.
-You receive a validated text-only Markdown report and the original aggregated
-research data. Your job is to produce TWO outputs:
+You receive a validated Markdown report and the aggregated research data.
+Return a SINGLE enhanced Markdown report with visualizations embedded directly
+as TEXT — no images, no base64 PNGs, no external files.
 
-1. **chart_specs** — a JSON list of chart specifications that will be rendered
-   as professional visualizations and embedded into the report.
-2. **enhanced_report** — the same report enhanced with placement markers where
-   each chart should be inserted: ``{{{{CHART:<index>}}}}`` (0-indexed).
+USE ONE OF THESE FORMATS FOR EACH VISUALIZATION:
 
-ANALYZE THE REPORT FOR RELEVANT DATA VISUALIZATIONS:
+1) **Bar / line / pie charts** → Mermaid code fences (triple backtick + mermaid):
 
-**ALWAYS USE** (when data is present):
-- Numerical comparisons (performance, metrics, rankings) → bar chart or horizontal_bar
-- Time series or trends → line or area chart
-- Distribution or market share → pie chart
-- Feature/capability comparison → matrix or comparison_table
-- Process workflows or systems → flowchart or architecture
-- Mathematical relationships or formulas → formula (with LaTeX)
-- Correlation or intensity patterns → heatmap
-- Key metrics highlights → stat_card
+   ```mermaid
+   xychart-beta
+     title "Model Accuracy on MMLU"
+     x-axis ["GPT-4", "Claude-3", "Gemini", "Llama-3"]
+     y-axis "Accuracy (%)" 0 --> 100
+     bar [86, 84, 82, 79]
+   ```
 
-**NEVER GENERATE** (exclude these):
-- Charts about metadata (number of sources, count of references, etc.)
-- Charts about methodology (how many tools were used, etc.)
-- Redundant charts (don't repeat the same data twice)
-- Empty or trivial charts (0 values, single data point)
+   ```mermaid
+   pie title Market Share 2025
+     "OpenAI" : 42
+     "Anthropic" : 23
+     "Google" : 20
+     "Others" : 15
+   ```
 
-SUPPORTED chart types and required fields:
-  bar:              {{"chart_type": "bar", "title": "...", "labels": ["A","B"], 
-                     "values": [10,20], "xlabel": "...", "ylabel": "...", "caption": "..."}}
-  horizontal_bar:   {{"chart_type": "horizontal_bar", "title": "...", "labels": ["A","B"],
-                     "values": [10,20], "xlabel": "...", "caption": "..."}}
-  line:             {{"chart_type": "line", "title": "...",
-                     "series": [{{"name":"S1","x":[1,2,3],"y":[10,20,15]}}],
-                     "xlabel": "...", "ylabel": "...", "caption": "..."}}
-  area:             {{"chart_type": "area", "title": "...",
-                     "series": [{{"name":"S1","x":[...],"y":[...]}}],
-                     "xlabel": "...", "ylabel": "...", "caption": "..."}}
-  pie:              {{"chart_type": "pie", "title": "...", "labels": ["A","B"],
-                     "values": [40,60], "caption": "..."}}
-  comparison_table: {{"chart_type": "comparison_table", "title": "...",
-                     "headers": ["Feature","Option A","Option B"],
-                     "rows": [["Speed","Fast","Slow"]], "caption": "..."}}
-  stat_card:        {{"chart_type": "stat_card", "title": "Key Metrics",
-                     "metrics": [{{"label":"Users","value":"2.5M","unit":""}}],
-                     "caption": "..."}}
-  flowchart:        {{"chart_type": "flowchart", "title": "...",
-                     "steps": [{{"text":"Step 1","color":"#FF6B6B"}},
-                              {{"text":"Step 2","color":"#00D4AA"}}],
-                     "caption": "..."}}
-  architecture:     {{"chart_type": "architecture", "title": "System Components",
-                     "components": [{{"name":"Frontend","type":"UI"}},
-                                   {{"name":"API","type":"Service"}}],
-                     "caption": "..."}}
-  heatmap:          {{"chart_type": "heatmap", "title": "...",
-                     "data": [[1,2],[3,4]], "labels_x": ["A","B"],
-                     "labels_y": ["X","Y"], "colormap": "viridis", "caption": "..."}}
-  formula:          {{"chart_type": "formula", "title": "Mathematical Model",
-                     "formula": "E = mc^2", "description": "Einstein's mass-energy equivalence",
-                     "caption": "..."}}
-  matrix:           {{"chart_type": "matrix", "title": "Capability Matrix",
-                     "categories": ["Speed","Cost","Accuracy"],
-                     "items": [{{"name":"Option A","scores":[90,70,85]}}],
-                     "caption": "..."}}
+2) **Flowcharts / architecture / process diagrams** → Mermaid flowchart:
+
+   ```mermaid
+   flowchart LR
+     A[User Query] --> B[Retriever]
+     B --> C[LLM]
+     C --> D[Response]
+   ```
+
+3) **Comparison tables / matrices / stat highlights** → GFM Markdown tables:
+
+   | Model | Params | Context | Cost / 1M tok |
+   |---|---:|---:|---:|
+   | GPT-4o | ~200B | 128K | $5 |
+   | Claude-3 Opus | ~180B | 200K | $15 |
+
+4) **Mathematical relationships / formulas** → LaTeX block, fenced by $$:
+
+   $$ \\text{{Perplexity}} = 2^{{-\\frac{{1}}{{N}}\\sum_i \\log_2 p(x_i)}} $$
 
 GUIDELINES:
-- Generate 3–8 visualizations. Prioritize variety: mix chart types (bar, line, flowchart, formula).
-- Use REAL data from the report and aggregated research. Never invent numbers.
-- For process/workflow topics → include flowchart or architecture diagram.
-- For technical/mathematical content → include formula if applicable.
-- For system comparisons → use matrix or architecture diagram.
-- Place each chart immediately AFTER the paragraph/section it illustrates.
-- Keep report text intact; only add {{{{CHART:<index>}}}} markers.
-- Ensure enhanced_report is valid Markdown.
+- Generate 3-8 visualizations across the report, varied in type (mix Mermaid
+  charts, flowcharts, tables, and formulas).
+- Use REAL numbers from the aggregated data. NEVER invent values.
+- Place each visualization immediately after the paragraph/section it illustrates.
+- Keep all original report text intact; only ADD visualizations between paragraphs.
+- Use descriptive captions in italics directly above or below each chart.
 
-IMPORTANT RULES:
-1. Do NOT create charts for metadata (e.g., "We found 15 sources" → NO chart).
-2. Do NOT create redundant visualizations of the same data.
-3. Prioritize substance: visualize the key findings, not the process.
-4. Each chart must add unique insight to the report.
-5. Use descriptive captions that explain the insight.
+NEVER GENERATE:
+- Visualizations about metadata (source counts, methodology, number of tools).
+- Redundant charts (same data twice).
+- Empty / trivial charts (0 values, single data point).
+- ```chart``` or ```graph``` fences — ONLY ```mermaid is rendered.
+- {{{{CHART:n}}}} markers or any placeholder syntax — embed visuals directly.
 
 Validated report:
 {report}
@@ -467,9 +488,8 @@ Validated report:
 Aggregated data (JSON):
 {aggregated}
 
-Return STRICT JSON only (no prose, no fences):
+Return STRICT JSON only (no prose, no fences around the JSON):
 {{
-  "chart_specs": [ ... ],
-  "enhanced_report": "full markdown string with {{{{CHART:n}}}} markers"
+  "enhanced_report": "full markdown string with embedded ```mermaid blocks, tables, and $$..$$ formulas"
 }}
 """
